@@ -1,0 +1,807 @@
+/* ui.js — Rendu et interactions de toutes les vues. Voix FR à la première personne
+   utilisateur, active, cohérente (cf. brief copy). Aucun rendu de logique métier ici :
+   on consomme Logic + Store. */
+(function () {
+  const S = () => Store.State;
+  const app = () => document.getElementById('app');
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  let route = 'home';
+  let timer = null; // { total, remaining, interval, exId }
+
+  // ---- icônes tabbar (inline, offline) ----
+  const IC = {
+    home: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
+    volume: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 20V9M12 20V4M19 20v-7"/></svg>',
+    lib: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3H18a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6.5A2.5 2.5 0 0 1 4 18.5v-13A2.5 2.5 0 0 1 6.5 3z"/><path d="M8 3v18"/></svg>',
+    track: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
+    more: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
+  };
+  const TABS = [['home', 'Aujourd’hui', IC.home], ['volume', 'Volume', IC.volume], ['lib', 'Biblio', IC.lib], ['track', 'Régularité', IC.track], ['more', 'Réglages', IC.more]];
+
+  function renderTabs() {
+    const tb = document.getElementById('tabbar'); tb.hidden = false;
+    tb.innerHTML = TABS.map(([r, label, ic]) =>
+      `<button data-nav="${r}" ${route === r ? 'aria-current="page"' : ''}><span class="ic">${ic}</span>${label}</button>`).join('');
+  }
+
+  function go(r) { route = r; render(); window.scrollTo(0, 0); }
+
+  // =====================================================================
+  //  RENDER dispatch
+  // =====================================================================
+  function render() {
+    const v = { home: viewHome, session: viewSession, volume: viewVolume, lib: viewLibrary, track: viewTrack, more: viewMore, program: viewProgram }[route] || viewHome;
+    app().innerHTML = `<div class="view">${topbar()}${v()}</div>`;
+    renderTabs();
+  }
+  const topbar = () => `<div class="topbar"><div class="brand"><span class="mark"></span>Chronographe <small>local</small></div>${route !== 'home' && route !== 'session' ? '' : ''}</div>`;
+
+  // =====================================================================
+  //  1) ACCUEIL — "Aujourd'hui" : une thèse, une réponse directe
+  // =====================================================================
+  function viewHome() {
+    const draft = S().draft;
+    const t = Store.todayTemplate();
+    const blocks = Logic.activeBlocks(t);
+    const est = Logic.estimateMinutes(blocks);
+    const cardio = S().settings.cardioDefault.duration;
+    const dl = Logic.deloadStatus();
+    const fatigue4 = Logic.fatigueSuggests4Day();
+
+    const status = [];
+    status.push(`<span class="chip">${S().settings.mode} jours</span>`);
+    if (dl.active) status.push('<span class="chip warn">Deload en cours</span>');
+    else if (dl.due) status.push('<span class="chip warn">Deload conseillé</span>');
+    const lastCk = S().sessions.filter(s => s.checkin).slice(-1)[0];
+    if (lastCk && (lastCk.checkin.energy === 1 || lastCk.checkin.sleep === 1)) status.push('<span class="chip warn">Fatigue élevée</span>');
+    else status.push('<span class="chip ok">Prêt</span>');
+
+    const up = Store.upcoming(4).slice(1);
+    const cta = draft
+      ? `<button class="btn primary block cta" data-nav="session">Reprendre ${esc(draft.name)} ▸</button>`
+      : `<button class="btn primary block cta" data-action="start-picker">Démarrer ${esc(t.name)} ▸</button>`;
+
+    return `
+    ${banners(dl, fatigue4)}
+    <section class="hero">
+      <div class="eyebrow">Aujourd’hui</div>
+      <div class="session-name">${esc(t.name)}</div>
+      <div class="focus">${esc(t.focus)}</div>
+      <div class="readout">
+        <span><b>~${est}</b> min séance</span>
+        <span><b>+${cardio}</b> min cardio</span>
+        <span><b>${blocks.length}</b> exos</span>
+      </div>
+      <div class="status">${status.join('')}</div>
+      ${cta}
+    </section>
+
+    <div class="between" style="margin:22px 2px 10px"><div class="eyebrow">À suivre</div>
+      <button class="btn ghost sm" data-action="reorder">Changer de séance</button></div>
+    <div class="upnext">
+      ${up.map(x => `<div class="mini"><div class="k">${esc(x.code)}</div><div class="n">${esc(x.name)}</div><div class="muted num" style="font-size:11px;margin-top:4px">~${Logic.estimateMinutes(Logic.activeBlocks(x))} min</div></div>`).join('')}
+    </div>
+
+    <div class="card pad" style="margin-top:22px">
+      <div class="between"><div class="eyebrow">Régularité · 4 semaines</div>
+        <button class="btn ghost sm" data-nav="track">Détail</button></div>
+      ${miniRegularity()}
+    </div>`;
+  }
+
+  function banners(dl, fatigue4) {
+    let out = '';
+    if (dl.due) out += `<div class="banner amber" style="margin-bottom:12px"><div><div class="ttl">5 semaines depuis le dernier deload</div><div class="body">Une semaine allégée (mêmes charges, −40% de séries) protège ta progression.</div><div class="acts"><button class="btn steel sm" data-action="apply-deload">Alléger cette semaine</button><button class="btn ghost sm" data-action="dismiss-deload">Plus tard</button></div></div></div>`;
+    if (dl.active) out += `<div class="banner info" style="margin-bottom:12px"><div><div class="ttl">Semaine de deload active</div><div class="body">Volume réduit de 40%. Reste sur tes charges, laisse le corps récupérer.</div></div></div>`;
+    if (fatigue4) out += `<div class="banner amber" style="margin-bottom:12px"><div><div class="ttl">Deux check-ins fatigués d’affilée</div><div class="body">Tu peux passer en mode 4 jours (Upper/Lower) le temps de récupérer. Rien n’est perdu, tu reviendras au 6 jours quand tu veux.</div><div class="acts"><button class="btn steel sm" data-action="to-4day">Passer en 4 jours</button><button class="btn ghost sm" data-action="dismiss-fatigue">Rester en 6 jours</button></div></div></div>`;
+    return out;
+  }
+
+  function miniRegularity() {
+    const days = Logic.regularityDays(4);
+    const today = new Date().toDateString();
+    return `<div class="cal" style="margin-top:10px">${days.map(d => `<div class="d ${d.done ? 'done' : ''} ${d.date.toDateString() === today ? 'today' : ''}"></div>`).join('')}</div>`;
+  }
+
+  // =====================================================================
+  //  2) SÉANCE ACTIVE — déroulé ordonné + log + timer + progression
+  // =====================================================================
+  function viewSession() {
+    const d = S().draft;
+    if (!d) return `<div class="empty"><div class="big">Aucune séance en cours</div><button class="btn primary" data-nav="home">Retour à l’accueil</button></div>`;
+    const cards = d.blocks.map((b, i) => sessionCard(b, i)).join('');
+    const doneCount = d.blocks.filter(b => b.sets.some(s => s.done)).length;
+    return `
+      <div class="between" style="margin-bottom:14px">
+        <div><div class="eyebrow">Séance en cours</div><h1 style="font-size:26px">${esc(d.name)}</h1></div>
+        <button class="btn ghost sm" data-action="abort">Quitter</button>
+      </div>
+      ${d.dropped && d.dropped.length ? `<div class="banner info" style="margin-bottom:14px"><div><div class="ttl">Séance recomposée · ${d.timeBudget} min</div><div class="body">J’ai gardé les compounds prioritaires et coupé : ${esc(d.dropped.join(', '))}.</div></div></div>` : ''}
+      <ol class="ex-list">${cards}</ol>
+      ${finisherCard(d)}
+      <button class="btn primary block" style="margin-top:16px" data-action="finish">Terminer la séance · ${doneCount}/${d.blocks.length} exos</button>
+    `;
+  }
+
+  function sessionCard(b, i) {
+    const ex = S().ex(b.exId);
+    if (!ex) return '';
+    const last = Logic.lastOccurrence(b.exId);
+    const prog = Logic.progression(b.exId);
+    const stag = Logic.stagnation(b.exId);
+    const done = b.sets.some(s => s.done);
+    const target = ex.perLeg ? `${b.sets.length}×${ex.repMin}${ex.repMax !== ex.repMin ? '-' + ex.repMax : ''}/jambe` : `${b.sets.length}×${ex.repMin}${ex.repMax !== ex.repMin ? '-' + ex.repMax : ''}`;
+
+    const setRows = b.sets.map((st, si) => {
+      const prev = last && last.entry.sets[si];
+      const logged = st.done;
+      return `<div class="set-row ${logged ? 'logged' : ''}">
+        <span class="sidx">${si + 1}</span>
+        <input class="num" inputmode="decimal" data-b="${i}" data-s="${si}" data-f="weight" value="${st.weight ?? ''}" placeholder="${prev ? prev.weight : 'kg'}" aria-label="Poids série ${si + 1}">
+        <input class="num" inputmode="numeric" data-b="${i}" data-s="${si}" data-f="reps" value="${st.reps ?? ''}" placeholder="${prev ? prev.reps : ex.repMin}" aria-label="Reps série ${si + 1}">
+        <input class="num" inputmode="numeric" data-b="${i}" data-s="${si}" data-f="rir" value="${st.rir ?? ''}" placeholder="RIR" aria-label="RIR série ${si + 1}">
+        <button class="set-check ${logged ? 'on' : ''}" data-action="toggle-set" data-b="${i}" data-s="${si}" aria-label="Valider la série ${si + 1}">${logged ? '✓' : '○'}</button>
+      </div>`;
+    }).join('');
+
+    return `<li class="ex-card ${done ? 'done' : ''}">
+      <span class="ord">${i + 1}</span>
+      <div class="ex-head">
+        ${ILLU.svgFor(ex.pattern, ex.musclePrimary)}
+        <div style="flex:1;min-width:0">
+          <div class="between"><div class="ex-title">${esc(ex.name)}</div>${ex.elbowUnsafe ? '<span class="avoid-flag">à éviter</span>' : ''}</div>
+          <div class="ex-meta">${esc(ex.musclePrimary)} · ${esc(ex.equipment)}${b.substitutedFrom ? ' · remplacé' : ''}${b.superset ? ' · superset' : ''}</div>
+          <div class="ex-target num">Cible ${target}</div>
+        </div>
+      </div>
+      <div class="set-row"><span></span><span class="colhead">kg</span><span class="colhead">reps</span><span class="colhead">rir</span><span></span></div>
+      ${setRows}
+      ${deltaLine(b, last)}
+      ${prog ? `<div class="suggestion">${esc(prog.label)}</div>` : ''}
+      ${stag ? `<div class="suggestion warn">${esc(stag.label)}</div>` : ''}
+      <div class="ex-actions">
+        <button class="btn sm ghost" data-action="add-set" data-b="${i}">+ série</button>
+        <button class="btn sm ghost" data-action="del-set" data-b="${i}">− série</button>
+        <button class="btn sm ghost" data-action="superset" data-b="${i}">Superset</button>
+        <button class="btn sm steel" data-action="substitute" data-b="${i}">Indisponible / machine prise</button>
+      </div>
+    </li>`;
+  }
+
+  function deltaLine(b, last) {
+    if (!last) return '<div class="delta flat">Première fois sur cet exercice — on pose la référence.</div>';
+    const curBest = Math.max(...b.sets.map(s => s.done ? (s.weight || 0) * (s.reps || 0) : 0), 0);
+    const prevBest = Math.max(...last.entry.sets.map(s => (s.weight || 0) * (s.reps || 0)), 0);
+    if (!curBest) {
+      const t = last.entry.sets.find(s => s.weight) || last.entry.sets[0];
+      return `<div class="delta flat">Dernière fois · ${t ? `${t.weight ?? '—'} kg × ${t.reps ?? '—'}` : '—'}</div>`;
+    }
+    const diff = curBest - prevBest;
+    const cls = diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat';
+    const sign = diff > 0 ? '▲' : diff < 0 ? '▼' : '=';
+    return `<div class="delta ${cls}">${sign} ${diff > 0 ? '+' : ''}${diff} vs dernière (volume meilleure série)</div>`;
+  }
+
+  function finisherCard(d) {
+    const c = d.cardio;
+    return `<div class="card pad" style="margin-top:14px">
+      <div class="between"><div class="eyebrow">Finisher cardio</div>
+        <button class="set-check ${c.done ? 'on' : ''}" data-action="toggle-cardio" aria-label="Cardio fait" style="width:38px;height:34px">${c.done ? '✓' : '○'}</button></div>
+      <div class="ex-meta" style="margin:6px 0 12px">Marche inclinée · faible impact, préserve la récupération</div>
+      <label class="field"><span>Durée · <b class="num" id="cardio-dur-val">${c.duration}</b> min</span>
+        <input type="range" min="20" max="30" step="1" value="${c.duration}" data-action="cardio-dur"></label>
+      <div class="row" style="margin-top:12px">
+        <label class="field" style="flex:1"><span>Inclinaison %</span><input class="num" inputmode="decimal" value="${c.incline}" data-action="cardio-incline"></label>
+        <label class="field" style="flex:1"><span>Vitesse km/h</span><input class="num" inputmode="decimal" value="${c.speed}" data-action="cardio-speed"></label>
+      </div>
+    </div>`;
+  }
+
+  // =====================================================================
+  //  VOLUME hebdomadaire
+  // =====================================================================
+  function viewVolume() {
+    const rows = Logic.weeklyVolume();
+    const max = 26;
+    const zoneLabel = { low: 'sous la cible', building: 'en construction', ok: 'zone réaliste', high: 'haut de fourchette', over: 'rendement décroissant' };
+    return `
+    <h1 style="font-size:26px;margin-bottom:4px">Volume de la semaine</h1>
+    <p class="muted" style="margin:0 0 14px;font-size:13px">Séries travaillées par muscle. Cible 12–24 ; en déficit, vise la zone réaliste 12–18. Au-delà de 20–22, rendement décroissant.</p>
+    <div class="card pad">
+      ${rows.map(r => {
+        const pct = Math.min(100, r.sets / max * 100);
+        const zStart = 12 / max * 100, zEnd = 18 / max * 100;
+        return `<div class="vol-row">
+          <div class="name">${esc(r.muscle)}</div>
+          <div class="vol-bar"><span class="zone" style="left:${zStart}%;width:${zEnd - zStart}%"></span><span class="fill ${r.zone}" style="width:${pct}%"></span></div>
+          <div class="count">${r.sets}</div>
+        </div>
+        <div class="muted" style="font-size:11px;margin:2px 0 0 102px">${zoneLabel[r.zone]}${r.zone === 'over' ? ' ⚠︎' : ''}</div>`;
+      }).join('')}
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:14px;padding:0 4px">La bande claire marque la zone 12–18 séries. Le compteur ne fait pas de morale : il rend visible où va réellement ton volume.</p>`;
+  }
+
+  // =====================================================================
+  //  BIBLIOTHÈQUE — CRUD complet
+  // =====================================================================
+  let libFilter = '';
+  function viewLibrary() {
+    const q = libFilter.toLowerCase();
+    const list = S().exercises
+      .filter(e => e.musclePrimary !== 'Cardio')
+      .filter(e => !q || e.name.toLowerCase().includes(q) || e.musclePrimary.toLowerCase().includes(q))
+      .sort((a, b) => (a.archived - b.archived) || a.musclePrimary.localeCompare(b.musclePrimary) || a.name.localeCompare(b.name));
+    return `
+    <div class="between" style="margin-bottom:12px"><h1 style="font-size:26px">Bibliothèque</h1>
+      <button class="btn primary sm" data-action="new-exercise">+ Exercice</button></div>
+    <input placeholder="Rechercher un exercice ou un muscle…" value="${esc(libFilter)}" data-action="lib-search" style="margin-bottom:14px">
+    <div class="card">
+      ${list.map(e => `<div class="lib-item ${e.archived ? 'archived' : ''}">
+        ${ILLU.svgFor(e.pattern, e.musclePrimary)}
+        <div style="flex:1;min-width:0">
+          <div class="ex-title" style="font-size:15px">${esc(e.name)} ${e.elbowUnsafe ? '<span class="avoid-flag">à éviter</span>' : ''}</div>
+          <div class="ex-meta"><span class="badge-eq">${esc(e.equipment)}</span> · ${esc(e.musclePrimary)} · ${e.repMin}-${e.repMax} reps${e.custom ? ' · custom' : ''}${e.archived ? ' · archivé' : ''}</div>
+        </div>
+        <button class="btn ghost sm" data-action="edit-exercise" data-id="${e.id}">Éditer</button>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  function exerciseForm(ex) {
+    const patterns = [['push-h', 'Poussée horizontale'], ['push-v', 'Poussée verticale'], ['pull-h', 'Tirage horizontal'], ['pull-v', 'Tirage vertical'], ['hinge', 'Hinge (charnière)'], ['squat', 'Squat'], ['curl', 'Curl'], ['extension', 'Extension'], ['isolation', 'Isolation (autre)']];
+    const equips = ['haltère', 'barre', 'câble', 'machine', 'poids du corps'];
+    const isNew = !ex;
+    ex = ex || { id: '', name: '', musclePrimary: 'Pectoraux', equipment: 'haltère', pattern: 'push-h', repMin: 8, repMax: 12, role: 'isolation', elbowSensitive: false, elbowUnsafe: false, tips: [], biomech: '', archived: false, custom: true };
+    return `<div class="grab"></div>
+      <h2 style="margin-bottom:4px">${isNew ? 'Nouvel exercice' : 'Éditer l’exercice'}</h2>
+      <p class="muted" style="font-size:13px;margin:0 0 16px">${isNew ? 'Son illustration sera générée automatiquement depuis le pattern choisi.' : 'Tu peux modifier chaque champ, y compris sur un exercice de base.'}</p>
+      <div class="row" style="align-items:center;margin-bottom:14px"><div id="form-illu">${ILLU.svgFor(ex.pattern, ex.musclePrimary)}</div><span class="muted" style="font-size:12px">Aperçu du schéma généré</span></div>
+      <div class="stack">
+        <label class="field"><span>Nom</span><input id="f-name" value="${esc(ex.name)}"></label>
+        <div class="row">
+          <label class="field" style="flex:1"><span>Muscle principal</span><select id="f-muscle">${DATA.MUSCLE_GROUPS.map(m => `<option ${m === ex.musclePrimary ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+          <label class="field" style="flex:1"><span>Équipement</span><select id="f-equip">${equips.map(m => `<option ${m === ex.equipment ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+        </div>
+        <label class="field"><span>Pattern de mouvement (définit l’illustration)</span><select id="f-pattern" data-action="pattern-change">${patterns.map(([v, l]) => `<option value="${v}" ${v === ex.pattern ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <div class="row">
+          <label class="field" style="flex:1"><span>Reps min</span><input class="num" inputmode="numeric" id="f-repmin" value="${ex.repMin}"></label>
+          <label class="field" style="flex:1"><span>Reps max</span><input class="num" inputmode="numeric" id="f-repmax" value="${ex.repMax}"></label>
+          <label class="field" style="flex:1"><span>Rôle</span><select id="f-role"><option value="compound" ${ex.role === 'compound' ? 'selected' : ''}>Compound</option><option value="isolation" ${ex.role === 'isolation' ? 'selected' : ''}>Isolation</option></select></label>
+        </div>
+        <label class="field"><span>Note biomécanique (courte)</span><textarea id="f-bio" rows="2">${esc(ex.biomech || '')}</textarea></label>
+        <label class="field"><span>Tips d’exécution (une ligne chacun)</span><textarea id="f-tips" rows="3">${esc((ex.tips || []).join('\n'))}</textarea></label>
+        <label class="row" style="gap:8px"><input type="checkbox" id="f-elbow" style="width:auto" ${ex.elbowSensitive ? 'checked' : ''}><span style="font-size:13px">Coude sensible (rappel mobilité pendant le repos)</span></label>
+        <label class="row" style="gap:8px"><input type="checkbox" id="f-unsafe" style="width:auto" ${ex.elbowUnsafe ? 'checked' : ''}><span style="font-size:13px">Élongation contre-indiquée coude (marqué « à éviter »)</span></label>
+      </div>
+      <div class="row" style="margin-top:18px">
+        <button class="btn primary block" data-action="save-exercise" data-id="${esc(ex.id)}">${isNew ? 'Créer l’exercice' : 'Enregistrer'}</button>
+      </div>
+      ${!isNew ? `<button class="btn block ${ex.archived ? 'steel' : 'danger'}" style="margin-top:10px" data-action="archive-exercise" data-id="${esc(ex.id)}">${ex.archived ? 'Réactiver l’exercice' : 'Archiver (garde l’historique lisible)'}</button>` : ''}`;
+  }
+
+  // =====================================================================
+  //  RÉGULARITÉ / SUIVI — calendrier, records, historique
+  // =====================================================================
+  function viewTrack() {
+    const days = Logic.regularityDays(4);
+    const today = new Date().toDateString();
+    const weeks = [];
+    for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+    const doneCount = days.filter(d => d.done).length;
+
+    // records récents
+    const prs = [];
+    for (const sess of S().sessions) for (const e of (sess.entries || [])) for (const pr of (e.prs || [])) prs.push({ date: sess.date, name: e.resolvedName || (S().ex(e.exId)?.name), pr });
+    prs.reverse();
+
+    const hist = S().sessions.slice().reverse().slice(0, 12);
+    return `
+    <h1 style="font-size:26px;margin-bottom:12px">Régularité</h1>
+    <div class="card pad">
+      <div class="between"><div class="eyebrow">4 dernières semaines</div><span class="chip ghost num">${doneCount} séances</span></div>
+      <div style="margin-top:12px">${weeks.map(w => `<div class="cal" style="margin-bottom:6px">${w.map(d => `<div class="d ${d.done ? 'done' : ''} ${d.date.toDateString() === today ? 'today' : ''}"></div>`).join('')}</div>`).join('')}</div>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">Chaque case pleine = une séance faite. Une pause n’efface rien et ne casse aucun compteur.</p>
+    </div>
+
+    <h2 style="font-size:18px;margin:22px 2px 10px">Records</h2>
+    ${prs.length ? `<div class="card">${prs.slice(0, 8).map(p => `<div class="lib-item"><span class="chip pr">PR</span><div style="flex:1"><div class="ex-title" style="font-size:14px">${esc(p.name)}</div><div class="ex-meta">${esc(p.pr.label)}</div></div><div class="muted num" style="font-size:11px">${fmtDate(p.date)}</div></div>`).join('')}</div>` : `<div class="empty">Tes records apparaîtront ici dès ta première séance loggée.</div>`}
+
+    <h2 style="font-size:18px;margin:22px 2px 10px">Historique</h2>
+    ${hist.length ? `<div class="card">${hist.map(s => `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:14px">${esc(s.name)}</div><div class="ex-meta">${s.entries.length} exos · ${s.entries.reduce((a, e) => a + e.sets.filter(x => x.done).length, 0)} séries${s.checkin ? ' · check-in fait' : ''}</div></div><div class="muted num" style="font-size:11px">${fmtDate(s.date)}</div></div>`).join('')}</div>` : `<div class="empty"><div class="big">Aucune séance encore</div>Lance ta première séance depuis l’accueil.</div>`}`;
+  }
+
+  const fmtDate = (iso) => { const d = new Date(iso); return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }); };
+
+  // =====================================================================
+  //  RÉGLAGES / PLUS
+  // =====================================================================
+  function viewMore() {
+    const s = S().settings;
+    return `
+    <h1 style="font-size:26px;margin-bottom:14px">Réglages</h1>
+
+    <div class="card pad stack">
+      <div class="eyebrow">Rythme d’entraînement</div>
+      <div class="row">
+        <button class="btn block ${s.mode === 6 ? 'primary' : ''}" data-action="mode" data-mode="6">6 jours · PPL</button>
+        <button class="btn block ${s.mode === 4 ? 'primary' : ''}" data-action="mode" data-mode="4">4 jours · Upper/Lower</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:0">Bascule libre à tout moment. En 4 jours, Push+Pull fusionnent (1–2 isolations retirées) ; le retour au 6 jours les réintègre. L’historique reste continu dans les deux sens.</p>
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Programme</div>
+      <button class="btn block" data-nav="program">Réorganiser mes séances & exercices</button>
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Incréments disponibles en salle</div>
+      <p class="muted" style="font-size:12px;margin:0">Les suggestions de charge s’arrondiront à ces pas.</p>
+      ${Object.entries(s.increments).map(([k, v]) => `<label class="field"><span>${esc(k)} — pas (kg)</span><input class="num" inputmode="decimal" value="${v}" data-action="increment" data-k="${esc(k)}"></label>`).join('')}
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Temps de repos (secondes)</div>
+      <div class="row">
+        <label class="field" style="flex:1"><span>Compounds</span><input class="num" inputmode="numeric" value="${s.restByRole.compound}" data-action="rest" data-k="compound"></label>
+        <label class="field" style="flex:1"><span>Isolations</span><input class="num" inputmode="numeric" value="${s.restByRole.isolation}" data-action="rest" data-k="isolation"></label>
+      </div>
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Rappel quotidien</div>
+      <p class="muted" style="font-size:12px;margin:0">Notification locale (aucun serveur) avec la séance du jour.</p>
+      <label class="field"><span>Heure</span><input type="time" value="${s.reminderTime || ''}" data-action="reminder-time"></label>
+      <button class="btn block" data-action="enable-reminder">${s.reminderTime ? 'Rappel actif · ' + s.reminderTime : 'Activer le rappel'}</button>
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Deload</div>
+      <button class="btn block" data-action="apply-deload">Appliquer une semaine de deload (−40%)</button>
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Données</div>
+      <button class="btn block" data-action="export">Exporter mes données (JSON)</button>
+      <button class="btn block" data-action="import">Importer une sauvegarde</button>
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Repas</div>
+      <div class="empty" style="padding:12px"><div class="big">Bientôt disponible</div>Le suivi des repas arrivera dans une prochaine version.</div>
+    </div>
+
+    <button class="btn danger block" style="margin-top:18px" data-action="reset">Réinitialiser l’application</button>
+    <p class="muted" style="font-size:11px;text-align:center;margin-top:18px">Chronographe · 100% local · aucune donnée ne quitte ton téléphone.</p>`;
+  }
+
+  // =====================================================================
+  //  ÉDITEUR DE PROGRAMME (réordonner / ajouter / retirer / séries)
+  // =====================================================================
+  let progEdit = null; // templateId en cours d'édition
+  function viewProgram() {
+    const order = Store.currentOrder();
+    if (!progEdit) {
+      return `<div class="between" style="margin-bottom:12px"><h1 style="font-size:24px">Mon programme</h1><button class="btn ghost sm" data-nav="more">Retour</button></div>
+      <p class="muted" style="font-size:13px;margin:0 0 14px">Mode ${S().settings.mode} jours. Touche une séance pour ajuster ses exercices et séries.</p>
+      <div class="card">${order.map(t => `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:15px">${esc(t.name)}</div><div class="ex-meta">${t.blocks.length} exercices · ${esc(t.focus)}</div></div><button class="btn ghost sm" data-action="edit-template" data-id="${t.id}">Éditer</button></div>`).join('')}</div>`;
+    }
+    const t = Store.templateById(progEdit);
+    return `<div class="between" style="margin-bottom:12px"><h1 style="font-size:22px">${esc(t.name)}</h1><button class="btn ghost sm" data-action="prog-back">Séances</button></div>
+    <div class="card">
+      ${t.blocks.map((b, i) => { const ex = S().ex(b.exId); return `<div class="lib-item">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <button class="btn ghost sm" data-action="tpl-up" data-i="${i}" ${i === 0 ? 'disabled' : ''}>▲</button>
+          <button class="btn ghost sm" data-action="tpl-down" data-i="${i}" ${i === t.blocks.length - 1 ? 'disabled' : ''}>▼</button>
+        </div>
+        <div style="flex:1;min-width:0"><div class="ex-title" style="font-size:14px">${esc(ex ? ex.name : b.exId)}</div><div class="ex-meta">${ex ? esc(ex.musclePrimary) : ''}</div></div>
+        <div class="row" style="gap:4px"><button class="btn ghost sm" data-action="tpl-sets-minus" data-i="${i}">−</button><span class="num" style="min-width:48px;text-align:center">${b.sets} séries</span><button class="btn ghost sm" data-action="tpl-sets-plus" data-i="${i}">+</button></div>
+        <button class="btn ghost sm danger" data-action="tpl-remove" data-i="${i}">✕</button>
+      </div>`; }).join('')}
+    </div>
+    <button class="btn primary block" style="margin-top:14px" data-action="tpl-add">+ Ajouter un exercice</button>`;
+  }
+
+  // =====================================================================
+  //  SHEETS (modales bas d'écran)
+  // =====================================================================
+  function openSheet(html) {
+    closeSheet();
+    const bd = document.createElement('div');
+    bd.className = 'sheet-backdrop'; bd.id = 'sheet';
+    bd.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
+    bd.addEventListener('click', e => { if (e.target === bd) closeSheet(); });
+    document.body.appendChild(bd);
+  }
+  function closeSheet() { const s = document.getElementById('sheet'); if (s) s.remove(); }
+
+  // =====================================================================
+  //  TIMER CHRONOGRAPHE (élément signature)
+  // =====================================================================
+  const R = 140, CIRC = 2 * Math.PI * R;
+  function startTimer(seconds, exId) {
+    stopTimer();
+    const ex = S().ex(exId);
+    const cue = ex && ex.elbowSensitive
+      ? `<div class="timer-cue"><b>Coude sensible</b> — contrôle la trajectoire, garde le coude fixe, pas de verrouillage forcé en extension.</div>`
+      : `<div class="timer-cue">Respire, prépare la prochaine série.</div>`;
+    const ov = document.createElement('div');
+    ov.className = 'timer-sheet'; ov.id = 'timer';
+    ov.innerHTML = `
+      <div class="eyebrow" style="color:rgba(255,255,255,.6)">Repos${ex ? ' · ' + esc(ex.name) : ''}</div>
+      <div class="dial" id="dial">
+        <svg viewBox="0 0 320 320"><circle class="track" cx="160" cy="160" r="${R}"/><circle class="prog" id="prog" cx="160" cy="160" r="${R}" stroke-dasharray="${CIRC}" stroke-dashoffset="0"/></svg>
+        <div class="readout"><div class="t num" id="t-read">0:00</div><div class="lbl">restant</div></div>
+      </div>
+      ${cue}
+      <div class="timer-controls">
+        <button class="btn" data-action="timer-add">+30 s</button>
+        <button class="btn" data-action="timer-skip">Passer</button>
+      </div>`;
+    document.body.appendChild(ov);
+    timer = { total: seconds, remaining: seconds, exId };
+    paintTimer();
+    timer.interval = setInterval(() => {
+      timer.remaining--;
+      if (timer.remaining <= 0) { endTimer(); return; }
+      paintTimer();
+    }, 1000);
+  }
+  function paintTimer() {
+    if (!timer) return;
+    const m = Math.floor(timer.remaining / 60), s = timer.remaining % 60;
+    const read = document.getElementById('t-read'); if (read) read.textContent = `${m}:${String(s).padStart(2, '0')}`;
+    const prog = document.getElementById('prog'); const dial = document.getElementById('dial');
+    const frac = timer.remaining / timer.total;
+    if (prog) prog.setAttribute('stroke-dashoffset', String(CIRC * (1 - frac)));
+    if (dial) dial.classList.toggle('ending', timer.remaining <= 10);
+  }
+  function endTimer() {
+    if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
+    try { if (Notification && Notification.permission === 'granted') new Notification('Repos terminé', { body: 'Prochaine série 💪', tag: 'rest', silent: false }); } catch (e) {}
+    stopTimer();
+  }
+  function stopTimer() { if (timer && timer.interval) clearInterval(timer.interval); timer = null; const t = document.getElementById('timer'); if (t) t.remove(); }
+
+  // =====================================================================
+  //  DRAFT (démarrer / manipuler une séance)
+  // =====================================================================
+  function buildDraft(template, budget) {
+    let blocks = Logic.activeBlocks(template);
+    let dropped = [];
+    if (budget && budget < 60) { const r = Logic.recompose(blocks, budget); blocks = r.blocks; dropped = r.dropped; }
+    const draftBlocks = blocks.map(b => {
+      const ex = S().ex(b.exId);
+      const prog = Logic.progression(b.exId);
+      const last = Logic.lastOccurrence(b.exId);
+      const guessW = prog && prog.type === 'load' ? prog.to : (prog && prog.weight) || (last ? Math.max(...last.entry.sets.map(s => s.weight || 0)) : null);
+      const sets = Array.from({ length: b.sets }, () => ({ weight: guessW ?? '', reps: '', rir: 2, done: false }));
+      return { exId: b.exId, sets, substitutedFrom: null, superset: false };
+    });
+    return {
+      templateId: template.id, name: template.name, code: template.code, focus: template.focus,
+      startedAt: new Date().toISOString(), timeBudget: budget || 60, dropped,
+      blocks: draftBlocks,
+      cardio: { ...S().settings.cardioDefault, enabled: true, done: false },
+      checkin: null,
+    };
+  }
+
+  async function finishSession() {
+    const d = S().draft;
+    const entries = d.blocks
+      .map(b => {
+        const ex = S().ex(b.exId);
+        const sets = b.sets.map(s => ({ weight: num(s.weight), reps: num(s.reps), rir: num(s.rir), done: !!s.done }));
+        if (!sets.some(s => s.done)) return null;
+        const prs = Logic.prForEntry(b.exId, sets, d.startedAt);
+        return { exId: b.exId, resolvedName: ex ? ex.name : b.exId, musclePrimary: ex ? ex.musclePrimary : '', role: ex ? ex.role : 'isolation', substitutedFrom: b.substitutedFrom, sets, prs };
+      })
+      .filter(Boolean);
+    // check-in fatigue en 2 taps
+    openCheckin(async (checkin) => {
+      const session = {
+        id: Date.now(), date: new Date().toISOString(), templateId: d.templateId, name: d.name, code: d.code,
+        entries, cardio: d.cardio.done ? d.cardio : null, checkin, timeBudget: d.timeBudget,
+      };
+      await Store.saveSession(session);
+      S().sessions.push(session);
+      await Store.advanceRotation(d.templateId);
+      await Store.clearDraft();
+      const allPr = entries.flatMap(e => (e.prs || []).map(p => ({ name: e.resolvedName, label: p.label })));
+      closeSheet();
+      go('home');
+      if (allPr.length) showPrCelebration(allPr);
+    });
+  }
+
+  function openCheckin(cb) {
+    const opt = (field, val, label) => `<button class="btn block" data-ck="${field}" data-v="${val}">${label}</button>`;
+    let state = { energy: null, sleep: null };
+    openSheet(`<div class="grab"></div>
+      <h2>Check-in · 2 taps</h2>
+      <p class="muted" style="font-size:13px;margin:4px 0 16px">Comment tu te sens ? Ça pilote les suggestions de repli, sans jugement.</p>
+      <div class="eyebrow">Énergie</div>
+      <div class="row" style="margin:8px 0 16px" id="ck-energy">${opt('energy', 1, '😮‍💨 Basse')}${opt('energy', 2, '🙂 Correcte')}${opt('energy', 3, '⚡ Top')}</div>
+      <div class="eyebrow">Sommeil</div>
+      <div class="row" style="margin:8px 0 16px" id="ck-sleep">${opt('sleep', 1, '😴 Court')}${opt('sleep', 2, '🛏️ Correct')}${opt('sleep', 3, '💤 Excellent')}</div>
+      <button class="btn primary block" id="ck-done" disabled>Enregistrer la séance</button>
+      <button class="btn ghost block" style="margin-top:8px" id="ck-skip">Passer le check-in</button>`);
+    const sheet = document.getElementById('sheet');
+    sheet.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-ck]');
+      if (b) {
+        const f = b.dataset.ck; state[f] = +b.dataset.v;
+        sheet.querySelectorAll(`#ck-${f} .btn`).forEach(x => x.classList.remove('primary'));
+        b.classList.add('primary');
+        sheet.querySelector('#ck-done').disabled = !(state.energy && state.sleep);
+      }
+      if (e.target.id === 'ck-done') cb(state);
+      if (e.target.id === 'ck-skip') cb(null);
+    });
+  }
+
+  function showPrCelebration(prs) {
+    openSheet(`<div class="grab"></div>
+      <div class="pr-pop" style="text-align:center">
+        <div class="chip pr" style="font-size:14px;padding:8px 14px">Nouveau record</div>
+        <h2 style="margin:14px 0 8px">Bravo 💥</h2>
+        ${prs.map(p => `<div class="banner volt" style="margin-top:8px;text-align:left"><div><div class="ttl">${esc(p.name)}</div><div class="body">${esc(p.label)}</div></div></div>`).join('')}
+        <button class="btn primary block" style="margin-top:16px" data-action="close-sheet">Continuer</button>
+      </div>`);
+  }
+
+  const num = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+
+  // =====================================================================
+  //  EXPORT / IMPORT
+  // =====================================================================
+  async function doExport() {
+    const data = {
+      _app: 'chronographe', _version: 1, exportedAt: new Date().toISOString(),
+      exercises: S().exercises, sessions: S().sessions, settings: S().settings,
+      program6: S().program[6], program4: S().program[4],
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `chronographe-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+  function doImport() {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json';
+    inp.onchange = () => {
+      const f = inp.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = async () => {
+        try {
+          const d = JSON.parse(r.result);
+          if (d._app !== 'chronographe') throw new Error('format');
+          for (const e of d.exercises) await Store.saveExercise(e);
+          for (const s of d.sessions) await Store.saveSession(s);
+          S().settings = d.settings; await Store.saveSettings();
+          S().program[6] = d.program6; S().program[4] = d.program4; await Store.saveProgram();
+          location.reload();
+        } catch (err) { alert('Fichier invalide — ce n’est pas une sauvegarde Chronographe.'); }
+      };
+      r.readAsText(f);
+    };
+    inp.click();
+  }
+
+  // =====================================================================
+  //  GESTIONNAIRE D'ÉVÉNEMENTS (délégation)
+  // =====================================================================
+  async function onClick(e) {
+    const nav = e.target.closest('[data-nav]'); if (nav) { if (nav.dataset.nav === 'program') progEdit = null; go(nav.dataset.nav); return; }
+    const el = e.target.closest('[data-action]'); if (!el) return;
+    const a = el.dataset.action;
+    const d = S().draft;
+
+    switch (a) {
+      case 'close-sheet': closeSheet(); break;
+
+      // ---- démarrage séance : sélecteur de temps ----
+      case 'start-picker': {
+        const t = Store.todayTemplate();
+        openSheet(`<div class="grab"></div><h2>${esc(t.name)}</h2>
+          <p class="muted" style="font-size:13px;margin:4px 0 16px">Combien de temps as-tu aujourd’hui ? Sous 60 min, je garde les compounds et coupe les isolations secondaires.</p>
+          <div class="stack">
+            <button class="btn primary block" data-action="start" data-budget="60">60 min · séance complète</button>
+            <button class="btn block" data-action="start" data-budget="40">40 min · resserrée</button>
+            <button class="btn block" data-action="start" data-budget="25">25 min · l’essentiel</button>
+          </div>`);
+        break;
+      }
+      case 'start': {
+        const t = Store.todayTemplate();
+        S().draft = buildDraft(t, +el.dataset.budget);
+        await Store.saveDraft(); closeSheet(); go('session');
+        break;
+      }
+      case 'reorder': {
+        const up = Store.upcoming(6);
+        openSheet(`<div class="grab"></div><h2>Changer la séance du jour</h2>
+          <p class="muted" style="font-size:13px;margin:4px 0 14px">La séance prévue se décale simplement d’un cran. La rotation reste cohérente ensuite.</p>
+          ${Store.currentOrder().map(t => `<button class="btn block" style="margin-top:8px" data-action="bump" data-id="${t.id}">${esc(t.name)} · ${esc(t.focus)}</button>`).join('')}`);
+        break;
+      }
+      case 'bump': { await Store.bumpToFront(el.dataset.id); closeSheet(); go('home'); break; }
+
+      case 'abort': openSheet(`<div class="grab"></div><h2>Quitter la séance ?</h2><p class="muted" style="font-size:13px;margin:6px 0 16px">Ta progression n’est pas encore enregistrée. Tu peux reprendre plus tard depuis l’accueil, ou tout effacer.</p><button class="btn block" data-action="close-sheet">Reprendre plus tard</button><button class="btn danger block" style="margin-top:8px" data-action="abort-confirm">Abandonner la séance</button>`); break;
+      case 'abort-confirm': await Store.clearDraft(); closeSheet(); go('home'); break;
+
+      // ---- log de série ----
+      case 'toggle-set': {
+        const b = +el.dataset.b, s = +el.dataset.s; const set = d.blocks[b].sets[s];
+        set.done = !set.done;
+        if (set.done) {
+          if (set.reps == null || set.reps === '') set.reps = S().ex(d.blocks[b].exId).repMin;
+          const ex = S().ex(d.blocks[b].exId);
+          const rest = S().settings.restByRole[ex.role] || 120;
+          await Store.saveDraft(); render();
+          startTimer(d.blocks[b].superset ? Math.round(rest * 0.6) : rest, ex.id);
+          return;
+        }
+        await Store.saveDraft(); render(); break;
+      }
+      case 'add-set': { const b = +el.dataset.b; const last = d.blocks[b].sets[d.blocks[b].sets.length - 1]; d.blocks[b].sets.push({ weight: last ? last.weight : '', reps: '', rir: last ? last.rir : 2, done: false }); await Store.saveDraft(); render(); break; }
+      case 'del-set': { const b = +el.dataset.b; if (d.blocks[b].sets.length > 1) d.blocks[b].sets.pop(); await Store.saveDraft(); render(); break; }
+      case 'superset': { const b = +el.dataset.b; d.blocks[b].superset = !d.blocks[b].superset; await Store.saveDraft(); render(); break; }
+
+      // ---- substitution ----
+      case 'substitute': {
+        const b = +el.dataset.b; const cur = S().ex(d.blocks[b].exId);
+        const alts = Logic.substitutes(d.blocks[b].exId);
+        openSheet(`<div class="grab"></div><h2>Remplacer ${esc(cur.name)}</h2>
+          <p class="muted" style="font-size:13px;margin:4px 0 14px">Même muscle (${esc(cur.musclePrimary)}), mouvement proche, autre matériel${cur.elbowSensitive ? ', coude-safe' : ''}.</p>
+          ${alts.length ? alts.map(x => `<div class="sub-alt">${ILLU.svgFor(x.pattern, x.musclePrimary)}<div style="flex:1"><div class="ex-title" style="font-size:14px">${esc(x.name)}</div><div class="ex-meta">${esc(x.equipment)} · ${esc(x.musclePrimary)}</div></div><div style="display:flex;flex-direction:column;gap:6px"><button class="btn sm primary" data-action="sub-once" data-b="${b}" data-id="${x.id}">Cette séance</button><button class="btn sm steel" data-action="sub-perm" data-b="${b}" data-id="${x.id}">Définitif</button></div></div>`).join('') : '<div class="empty">Aucune alternative pertinente trouvée dans la bibliothèque.</div>'}`);
+        break;
+      }
+      case 'sub-once': { const b = +el.dataset.b; const from = d.blocks[b].exId; d.blocks[b].substitutedFrom = from; d.blocks[b].exId = el.dataset.id; await Store.saveDraft(); closeSheet(); render(); break; }
+      case 'sub-perm': {
+        const b = +el.dataset.b; const from = d.blocks[b].exId; const to = el.dataset.id;
+        d.blocks[b].substitutedFrom = from; d.blocks[b].exId = to;
+        // propage aux prochaines occurrences dans le template du programme courant
+        const t = S().program[S().settings.mode].find(x => x.id === d.templateId);
+        if (t) { const blk = t.blocks.find(x => x.exId === from); if (blk) blk.exId = to; await Store.saveProgram(); }
+        await Store.saveDraft(); closeSheet(); render(); break;
+      }
+
+      // ---- cardio finisher ----
+      case 'toggle-cardio': d.cardio.done = !d.cardio.done; await Store.saveDraft(); render(); break;
+
+      // ---- finir ----
+      case 'finish': {
+        if (!d.blocks.some(b => b.sets.some(s => s.done))) { openSheet('<div class="grab"></div><div class="empty"><div class="big">Aucune série validée</div>Valide au moins une série avant de terminer.</div><button class="btn primary block" data-action="close-sheet">OK</button>'); break; }
+        await finishSession(); break;
+      }
+
+      // ---- timer ----
+      case 'timer-add': if (timer) { timer.remaining += 30; timer.total += 30; paintTimer(); } break;
+      case 'timer-skip': stopTimer(); break;
+
+      // ---- banners ----
+      case 'apply-deload': {
+        const dl = S().settings.deload; dl.active = true; dl.activeUntil = new Date(Date.now() + 7 * 864e5).toISOString(); dl.lastDeloadDate = new Date().toISOString();
+        await Store.saveSettings(); go(route === 'more' ? 'more' : 'home'); break;
+      }
+      case 'dismiss-deload': { S().settings.deload.lastDeloadDate = new Date().toISOString(); await Store.saveSettings(); go('home'); break; }
+      case 'to-4day': await Store.setMode(4); go('home'); break;
+      case 'dismiss-fatigue': { // marquer les check-ins vus pour ne plus proposer immédiatement
+        S().sessions.filter(s => s.checkin).slice(-2).forEach(s => s.checkin._seen = true);
+        for (const s of S().sessions.slice(-2)) await Store.saveSession(s); go('home'); break; }
+
+      // ---- bibliothèque ----
+      case 'new-exercise': openSheet(exerciseForm(null)); break;
+      case 'edit-exercise': openSheet(exerciseForm(S().ex(el.dataset.id))); break;
+      case 'pattern-change': break; // géré dans onChange
+      case 'save-exercise': await saveExerciseForm(el.dataset.id); break;
+      case 'archive-exercise': { const ex = S().ex(el.dataset.id); ex.archived = !ex.archived; await Store.saveExercise(ex); closeSheet(); render(); break; }
+
+      // ---- mode / réglages ----
+      case 'mode': await Store.setMode(+el.dataset.mode); render(); break;
+      case 'enable-reminder': await enableReminder(); break;
+      case 'export': await doExport(); break;
+      case 'import': doImport(); break;
+      case 'reset': openSheet('<div class="grab"></div><h2>Réinitialiser ?</h2><p class="muted" style="font-size:13px;margin:6px 0 16px">Tout l’historique, le programme et les réglages seront effacés. Pense à exporter avant.</p><button class="btn block" data-action="close-sheet">Annuler</button><button class="btn danger block" style="margin-top:8px" data-action="reset-confirm">Tout effacer</button>'); break;
+      case 'reset-confirm': { indexedDB.deleteDatabase('chrono-musculation'); location.reload(); break; }
+
+      // ---- éditeur programme ----
+      case 'edit-template': progEdit = el.dataset.id; render(); break;
+      case 'prog-back': progEdit = null; render(); break;
+      case 'tpl-up': case 'tpl-down': { const t = Store.templateById(progEdit); const i = +el.dataset.i; const j = a === 'tpl-up' ? i - 1 : i + 1; [t.blocks[i], t.blocks[j]] = [t.blocks[j], t.blocks[i]]; await Store.saveProgram(); render(); break; }
+      case 'tpl-sets-plus': { const t = Store.templateById(progEdit); t.blocks[+el.dataset.i].sets++; await Store.saveProgram(); render(); break; }
+      case 'tpl-sets-minus': { const t = Store.templateById(progEdit); const b = t.blocks[+el.dataset.i]; if (b.sets > 1) b.sets--; await Store.saveProgram(); render(); break; }
+      case 'tpl-remove': { const t = Store.templateById(progEdit); t.blocks.splice(+el.dataset.i, 1); await Store.saveProgram(); render(); break; }
+      case 'tpl-add': {
+        const t = Store.templateById(progEdit);
+        const opts = S().exercises.filter(x => !x.archived && x.musclePrimary !== 'Cardio' && !t.blocks.some(b => b.exId === x.id));
+        openSheet(`<div class="grab"></div><h2>Ajouter à ${esc(t.name)}</h2><div style="margin-top:10px">${opts.map(x => `<button class="btn block" style="margin-top:8px" data-action="tpl-add-do" data-id="${x.id}">${esc(x.name)} · ${esc(x.musclePrimary)}</button>`).join('')}</div>`);
+        break;
+      }
+      case 'tpl-add-do': { const t = Store.templateById(progEdit); t.blocks.push({ exId: el.dataset.id, sets: 3 }); await Store.saveProgram(); closeSheet(); render(); break; }
+    }
+  }
+
+  // inputs / selects / ranges
+  async function onChange(e) {
+    const t = e.target; const d = S().draft;
+    if (t.dataset.b != null && t.dataset.f) { // sets de séance
+      d.blocks[+t.dataset.b].sets[+t.dataset.s][t.dataset.f] = t.value; await Store.saveDraft(); return;
+    }
+    if (t.dataset.action === 'pattern-change' || t.id === 'f-muscle') {
+      const p = document.getElementById('f-pattern').value, m = document.getElementById('f-muscle').value;
+      const box = document.getElementById('form-illu'); if (box) box.innerHTML = ILLU.svgFor(p, m); return;
+    }
+    switch (t.dataset.action) {
+      case 'lib-search': libFilter = t.value; { const cur = document.activeElement; render(); const ni = app().querySelector('[data-action="lib-search"]'); if (ni) { ni.focus(); ni.setSelectionRange(ni.value.length, ni.value.length); } } break;
+      case 'cardio-dur': d.cardio.duration = +t.value; document.getElementById('cardio-dur-val').textContent = t.value; await Store.saveDraft(); break;
+      case 'cardio-incline': d.cardio.incline = +t.value; await Store.saveDraft(); break;
+      case 'cardio-speed': d.cardio.speed = +t.value; await Store.saveDraft(); break;
+      case 'increment': S().settings.increments[t.dataset.k] = +t.value || 1; await Store.saveSettings(); break;
+      case 'rest': S().settings.restByRole[t.dataset.k] = +t.value || 60; await Store.saveSettings(); break;
+      case 'reminder-time': S().settings.reminderTime = t.value; await Store.saveSettings(); break;
+    }
+  }
+
+  async function saveExerciseForm(id) {
+    const g = (x) => document.getElementById(x);
+    const name = g('f-name').value.trim(); if (!name) { g('f-name').focus(); return; }
+    const existing = id ? S().ex(id) : null;
+    const ex = existing || { id: 'cust_' + Date.now(), custom: true, archived: false };
+    ex.name = name;
+    ex.musclePrimary = g('f-muscle').value;
+    ex.equipment = g('f-equip').value;
+    ex.pattern = g('f-pattern').value;
+    ex.repMin = +g('f-repmin').value || 8;
+    ex.repMax = +g('f-repmax').value || ex.repMin;
+    ex.role = g('f-role').value;
+    ex.biomech = g('f-bio').value.trim();
+    ex.tips = g('f-tips').value.split('\n').map(s => s.trim()).filter(Boolean);
+    ex.elbowSensitive = g('f-elbow').checked;
+    ex.elbowUnsafe = g('f-unsafe').checked;
+    ex.muscleSecondary = ex.muscleSecondary || [];
+    await Store.saveExercise(ex);
+    if (!existing) S().exercises.push(ex);
+    closeSheet(); render();
+  }
+
+  // ---- notifications ----
+  async function enableReminder() {
+    if (!('Notification' in window)) { alert('Les notifications ne sont pas disponibles sur ce navigateur.'); return; }
+    let perm = Notification.permission;
+    if (perm === 'default') perm = await Notification.requestPermission();
+    if (perm !== 'granted') { alert('Autorise les notifications pour recevoir le rappel.'); return; }
+    if (!S().settings.reminderTime) { alert('Choisis d’abord une heure de rappel.'); return; }
+    scheduleReminder();
+    render();
+  }
+  let reminderTimeout = null;
+  function scheduleReminder() {
+    if (reminderTimeout) clearTimeout(reminderTimeout);
+    const time = S().settings.reminderTime; if (!time || Notification.permission !== 'granted') return;
+    const [h, m] = time.split(':').map(Number);
+    const now = new Date(); const next = new Date(); next.setHours(h, m, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    reminderTimeout = setTimeout(() => {
+      const t = Store.todayTemplate();
+      try { new Notification('Séance du jour', { body: `${t.name} · ${t.focus}`, tag: 'daily' }); } catch (e) {}
+      scheduleReminder();
+    }, next - now);
+  }
+
+  function init() {
+    document.getElementById('boot').style.display = 'none';
+    // Délégation au niveau document : couvre #app, la tabbar, les sheets et l'overlay timer
+    // (tous rendus hors de #app).
+    document.addEventListener('click', onClick);
+    document.addEventListener('change', onChange);
+    document.addEventListener('input', (e) => { if (e.target.dataset && (e.target.dataset.action === 'cardio-dur' || e.target.dataset.action === 'lib-search')) onChange(e); });
+    scheduleReminder();
+    render();
+  }
+
+  window.UI = { init };
+})();
