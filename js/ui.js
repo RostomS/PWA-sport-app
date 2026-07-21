@@ -206,15 +206,52 @@
   }
 
   // =====================================================================
-  //  VOLUME hebdomadaire
+  //  VOLUME hebdomadaire — carte musculaire + barres
   // =====================================================================
+  const zoneFill = (z) => z === 'over' ? 'var(--danger)' : z === 'high' ? 'var(--amber)' : z === 'ok' ? 'var(--signal)' : z === 'building' ? 'var(--steel)' : 'var(--line)';
+  // Corps schématiques (face + dos), chaque groupe teinté par sa zone de volume.
+  function bodyMapSVG(zmap) {
+    const f = (m) => zoneFill(zmap[m] || 'low');
+    const N = 'var(--line)';
+    return `<svg class="bodymap" viewBox="0 0 170 150" role="img" aria-label="Carte des muscles travaillés cette semaine">
+      <g>
+        <circle cx="45" cy="15" r="8" fill="${N}"/>
+        <rect x="28" y="26" width="9" height="9" rx="3" fill="${f('Épaules')}"/><rect x="53" y="26" width="9" height="9" rx="3" fill="${f('Épaules')}"/>
+        <rect x="35" y="27" width="20" height="13" rx="4" fill="${f('Pectoraux')}"/>
+        <rect x="26" y="35" width="7" height="16" rx="3" fill="${f('Biceps')}"/><rect x="57" y="35" width="7" height="16" rx="3" fill="${f('Biceps')}"/>
+        <rect x="37" y="41" width="16" height="16" rx="3" fill="${N}"/>
+        <rect x="36" y="59" width="8" height="28" rx="4" fill="${f('Quadriceps')}"/><rect x="46" y="59" width="8" height="28" rx="4" fill="${f('Quadriceps')}"/>
+        <rect x="37" y="89" width="7" height="20" rx="3" fill="${f('Mollets')}"/><rect x="46" y="89" width="7" height="20" rx="3" fill="${f('Mollets')}"/>
+        <text x="45" y="128" text-anchor="middle" class="bm-lab">Face</text>
+      </g>
+      <g transform="translate(80,0)">
+        <circle cx="45" cy="15" r="8" fill="${N}"/>
+        <rect x="33" y="25" width="24" height="23" rx="5" fill="${f('Dos')}"/>
+        <rect x="26" y="35" width="7" height="16" rx="3" fill="${f('Triceps')}"/><rect x="57" y="35" width="7" height="16" rx="3" fill="${f('Triceps')}"/>
+        <rect x="35" y="50" width="20" height="12" rx="4" fill="${f('Fessiers')}"/>
+        <rect x="36" y="64" width="8" height="24" rx="4" fill="${f('Ischios')}"/><rect x="46" y="64" width="8" height="24" rx="4" fill="${f('Ischios')}"/>
+        <rect x="37" y="90" width="7" height="19" rx="3" fill="${f('Mollets')}"/><rect x="46" y="90" width="7" height="19" rx="3" fill="${f('Mollets')}"/>
+        <text x="45" y="128" text-anchor="middle" class="bm-lab">Dos</text>
+      </g>
+    </svg>`;
+  }
   function viewVolume() {
     const rows = Logic.weeklyVolume();
     const max = 26;
+    const zmap = {}; rows.forEach(r => zmap[r.muscle] = r.zone);
     const zoneLabel = { low: 'sous la cible', building: 'en construction', ok: 'zone réaliste', high: 'haut de fourchette', over: 'rendement décroissant' };
     return `
     <h1 style="font-size:26px;margin-bottom:4px">Volume de la semaine</h1>
     <p class="muted" style="margin:0 0 14px;font-size:13px">Séries travaillées par muscle. Cible 12–24 ; en déficit, vise la zone réaliste 12–18. Au-delà de 20–22, rendement décroissant.</p>
+    <div class="card pad" style="margin-bottom:14px">
+      <div class="musclemap">${bodyMapSVG(zmap)}</div>
+      <div class="bm-legend">
+        <span><i style="background:var(--steel)"></i>en construction</span>
+        <span><i style="background:var(--signal)"></i>réaliste</span>
+        <span><i style="background:var(--amber)"></i>haut</span>
+        <span><i style="background:var(--danger)"></i>rendement ↓</span>
+      </div>
+    </div>
     <div class="card pad">
       ${rows.map(r => {
         const pct = Math.min(100, r.sets / max * 100);
@@ -354,6 +391,9 @@
       <p class="muted" style="font-size:13px;margin:8px 0 0">Sur tes ${rc.samples} séries menées à l’échec, tu annonçais en moyenne <b class="num">RIR ${rc.bias}</b>. ${rc.bias >= 1.5 ? `Tu surestimes tes reps en réserve d’environ ${Math.round(rc.bias)} — pousse un peu plus près de l’échec, surtout sur les isolations.` : 'Ton ressenti colle à la réalité — continue comme ça.'}</p>
     </div>` : ''}
 
+    <h2 style="font-size:18px;margin:22px 2px 10px">Outils</h2>
+    <div class="card pad"><div class="between"><div><div class="ex-title" style="font-size:14px">Calculateur 1RM &amp; %</div><div class="ex-meta">Estime ton max et la charge à chaque pourcentage.</div></div><button class="btn sm steel" data-action="one-rm">Ouvrir</button></div></div>
+
     <h2 style="font-size:18px;margin:22px 2px 10px">Progression par exercice</h2>
     ${exs.length ? `<div class="card">${exs.map(x => {
       const ser = Logic.e1rmSeries(x.id); const vals = ser.map(p => p.value);
@@ -381,10 +421,34 @@
       <h2 style="font-size:20px">${esc(ex.name)}</h2>
       <div class="ex-meta" style="margin:2px 0 14px">${esc(ex.musclePrimary)} · ${esc(ex.equipment)}</div>
       <div class="card pad"><div class="between"><div class="eyebrow">1RM estimé</div><span class="delta ${pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat'}">${pct > 0 ? '+' : ''}${pct}% · ${lastV.toFixed(1)} kg</span></div>
-        <div style="margin-top:10px">${sparkSVG(vals, 260, 78)}</div></div>
+        <div style="margin-top:10px">${sparkSVG(vals, 260, 78)}</div>
+        ${ser.length ? `<button class="btn sm ghost" style="margin-top:10px" data-action="one-rm-ex" data-id="${esc(id)}">Calculer mes %</button>` : ''}</div>
       <div class="card pad" style="margin-top:12px"><div class="eyebrow">Volume par séance</div><div style="margin-top:10px">${sparkSVG(vols, 260, 60, 'var(--steel)')}</div></div>
       <h3 style="font-size:15px;margin:16px 2px 8px">Séance par séance</h3>
       <div class="card">${ser.slice().reverse().map(p => `<div class="lib-item"><div style="flex:1"><div class="ex-title num" style="font-size:13px">${p.top.weight} kg × ${p.top.reps}</div><div class="ex-meta">1RM est. ${p.value.toFixed(1)} kg · volume ${p.volume}</div></div><div class="muted num" style="font-size:11px">${fmtDate(p.date)}</div></div>`).join('')}</div>`);
+  }
+
+  // 1RM (Epley) + table de chargement en %
+  function ormTable(w, reps, eq) {
+    const oneRM = Logic.e1rm(num(w), num(reps));
+    if (!oneRM) return '<div class="empty" style="padding:12px">Entre un poids et des reps pour estimer ton max.</div>';
+    const rows = [[100, 1], [95, 2], [90, 4], [85, 6], [80, 8], [75, 10], [70, 12], [67, 15]];
+    return `<div class="orm-1rm">1RM estimé · <b class="num">${oneRM.toFixed(1)} kg</b></div>
+      <div class="orm-table">${rows.map(([pct, r]) => {
+        const load = Logic.roundToIncrement(oneRM * pct / 100, eq);
+        return `<div class="orm-row"><span class="num" style="color:var(--accent-steel)">${pct}%</span><span class="num" style="font-weight:700">${load} kg</span><span class="muted num">~${r} rep${r > 1 ? 's' : ''}</span></div>`;
+      }).join('')}</div>`;
+  }
+  function openOneRM(prefW, prefR, eq) {
+    eq = eq || 'barre';
+    openSheet(`<div class="grab"></div><h2>Calculateur 1RM &amp; %</h2>
+      <p class="muted" style="font-size:13px;margin:4px 0 12px">Estime ton max (formule d’Epley) et la charge à chaque %, arrondie à tes incréments.</p>
+      <div class="row">
+        <label class="field" style="flex:1"><span>Poids (kg)</span><input class="num" inputmode="decimal" id="orm-w" value="${prefW ?? ''}" data-action="orm"></label>
+        <label class="field" style="flex:1"><span>Reps</span><input class="num" inputmode="numeric" id="orm-r" value="${prefR ?? ''}" data-action="orm"></label>
+      </div>
+      <label class="field" style="margin-top:10px"><span>Arrondir comme</span><select id="orm-eq" data-action="orm">${['barre', 'haltère', 'machine', 'câble'].map(x => `<option ${x === eq ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+      <div id="orm-out" style="margin-top:16px">${ormTable(prefW, prefR, eq)}</div>`);
   }
 
   // Plate calculator (barre)
@@ -821,6 +885,8 @@
       }
       case 'recap-continue': { closeSheet(); if (recapContinue) { const f = recapContinue; recapContinue = null; f(); } break; }
       case 'ex-progress': openExProgress(el.dataset.id); break;
+      case 'one-rm': openOneRM('', '', 'barre'); break;
+      case 'one-rm-ex': { const ser = Logic.e1rmSeries(el.dataset.id); const top = ser.length ? ser[ser.length - 1].top : {}; const ex = S().ex(el.dataset.id); openOneRM(top.weight ?? '', top.reps ?? '', ex ? ex.equipment : 'barre'); break; }
 
       // ---- onboarding ----
       case 'onb-next': onb.step++; showOnboard(); break;
@@ -950,6 +1016,7 @@
       case 'barweight': S().settings.barWeight = +t.value || 20; await Store.saveSettings(); break;
       case 'plates-setting': S().settings.plates = t.value.split(',').map(x => parseFloat(x.trim())).filter(x => x > 0).sort((a, b) => b - a); await Store.saveSettings(); break;
       case 'plate-target': { const out = document.getElementById('plate-out'); if (out) out.innerHTML = plateHTML(t.value); break; }
+      case 'orm': { const out = document.getElementById('orm-out'); if (out) out.innerHTML = ormTable(document.getElementById('orm-w').value, document.getElementById('orm-r').value, document.getElementById('orm-eq').value); break; }
     }
   }
 
@@ -1148,7 +1215,7 @@
     // (tous rendus hors de #app).
     document.addEventListener('click', onClick);
     document.addEventListener('change', onChange);
-    document.addEventListener('input', (e) => { const a = e.target.dataset && e.target.dataset.action; if (a === 'cardio-dur' || a === 'lib-search' || a === 'plate-target') onChange(e); });
+    document.addEventListener('input', (e) => { const a = e.target.dataset && e.target.dataset.action; if (a === 'cardio-dur' || a === 'lib-search' || a === 'plate-target' || a === 'orm') onChange(e); });
     scheduleReminder();
     render();
     if (!S().settings.onboarded) startOnboarding();
