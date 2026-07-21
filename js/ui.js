@@ -145,7 +145,7 @@
         <input class="num" inputmode="decimal" data-b="${i}" data-s="${si}" data-f="weight" value="${st.weight ?? ''}" placeholder="${prev ? prev.weight : 'kg'}" aria-label="Poids série ${si + 1}">
         <input class="num" inputmode="numeric" data-b="${i}" data-s="${si}" data-f="reps" value="${st.reps ?? ''}" placeholder="${prev ? prev.reps : ex.repMin}" aria-label="Reps série ${si + 1}">
         <input class="num" inputmode="numeric" data-b="${i}" data-s="${si}" data-f="rir" value="${st.rir ?? ''}" placeholder="RIR" aria-label="RIR série ${si + 1}">
-        <button class="set-check ${logged ? 'on' : ''}" data-action="toggle-set" data-b="${i}" data-s="${si}" aria-label="Valider la série ${si + 1}">${logged ? '✓' : '○'}</button>
+        <button class="set-check ${logged ? 'on' : ''}" data-action="toggle-set" data-b="${i}" data-s="${si}" aria-pressed="${logged}" aria-label="Valider la série ${si + 1}">${logged ? '✓' : '○'}</button>
       </div>`;
     }).join('');
 
@@ -583,9 +583,10 @@
     closeSheet();
     const bd = document.createElement('div');
     bd.className = 'sheet-backdrop'; bd.id = 'sheet';
-    bd.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${html}</div>`;
+    bd.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" tabindex="-1">${html}</div>`;
     bd.addEventListener('click', e => { if (e.target === bd) closeSheet(); });
     document.body.appendChild(bd);
+    bd.firstElementChild.focus({ preventScroll: true }); // entre dans le dialogue sans ouvrir le clavier
   }
   function closeSheet() { const s = document.getElementById('sheet'); if (s) s.remove(); }
 
@@ -607,6 +608,7 @@
       : `<div class="timer-cue">Respire, prépare la prochaine série.</div>`;
     const ov = document.createElement('div');
     ov.className = 'timer-sheet'; ov.id = 'timer';
+    ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-label', 'Minuteur de repos');
     ov.innerHTML = `
       <div class="eyebrow" style="color:rgba(255,255,255,.6)">Repos${ex ? ' · ' + esc(ex.name) : ''}</div>
       <div class="dial" id="dial">
@@ -754,16 +756,6 @@
       if (e.target.id === 'ck-done') cb(state);
       if (e.target.id === 'ck-skip') cb(null);
     });
-  }
-
-  function showPrCelebration(prs) {
-    openSheet(`<div class="grab"></div>
-      <div class="pr-pop" style="text-align:center">
-        <div class="chip pr" style="font-size:14px;padding:8px 14px">Nouveau record</div>
-        <h2 style="margin:14px 0 8px">Bravo 💥</h2>
-        ${prs.map(p => `<div class="banner volt" style="margin-top:8px;text-align:left"><div><div class="ttl">${esc(p.name)}</div><div class="body">${esc(p.label)}</div></div></div>`).join('')}
-        <button class="btn primary block" style="margin-top:16px" data-action="close-sheet">Continuer</button>
-      </div>`);
   }
 
   const num = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
@@ -1097,7 +1089,7 @@
   }
   function showOnboard() {
     let el = document.getElementById('onboard');
-    if (!el) { el = document.createElement('div'); el.id = 'onboard'; el.className = 'onboard'; document.body.appendChild(el); }
+    if (!el) { el = document.createElement('div'); el.id = 'onboard'; el.className = 'onboard'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Configuration initiale'); document.body.appendChild(el); }
     el.innerHTML = onboardStep();
   }
   function closeOnboard() { const el = document.getElementById('onboard'); if (el) el.remove(); }
@@ -1216,6 +1208,12 @@
     document.addEventListener('click', onClick);
     document.addEventListener('change', onChange);
     document.addEventListener('input', (e) => { const a = e.target.dataset && e.target.dataset.action; if (a === 'cardio-dur' || a === 'lib-search' || a === 'plate-target' || a === 'orm') onChange(e); });
+    // Échap : ferme la feuille ouverte, sinon passe le repos (accessibilité clavier / desktop).
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (document.getElementById('sheet')) closeSheet();
+      else if (timer) stopTimer();
+    });
     scheduleReminder();
     render();
     if (!S().settings.onboarded) startOnboarding();
