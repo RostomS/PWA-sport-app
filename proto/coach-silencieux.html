@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#0E1013">
+<title>Coach Silencieux — prototype</title>
+<style>
+  :root{
+    --ink:#F3F5F8;--mut:#6a7180;--line:#20242c;--card:#161A20;--bg:#0E1013;
+    --signal:#6D86FF;--volt:#C6F135;--amber:#FF9E2C;--good:#39C88C;
+    --mono:ui-monospace,"SF Mono",Menlo,"JetBrains Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+    padding:calc(env(safe-area-inset-top,0px) + 14px) 16px calc(env(safe-area-inset-bottom,0px) + 16px);
+    max-width:520px;margin:0 auto;-webkit-font-smoothing:antialiased;}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .brand{font-weight:800;letter-spacing:-.02em;}
+  .pill{font-family:var(--mono);font-size:10px;font-weight:700;background:#20242c;color:#9aa1ad;padding:4px 9px;border-radius:999px;}
+  .pill.live{background:color-mix(in srgb,var(--good) 20%,transparent);color:var(--good);}
+  h1{font-size:20px;margin:0 0 4px;letter-spacing:-.02em;}
+  .lead{color:var(--mut);font-size:13px;margin:0 0 14px;}
+  .stage{position:relative;border-radius:18px;overflow:hidden;background:#000;aspect-ratio:3/4;border:1px solid var(--line);}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);}
+  .roi{position:absolute;left:18%;top:14%;width:64%;height:64%;border:2px dashed rgba(255,255,255,.35);border-radius:14px;pointer-events:none;}
+  .count{position:absolute;top:12px;left:14px;z-index:2;}
+  .count .n{font-family:var(--mono);font-size:56px;font-weight:700;line-height:.9;text-shadow:0 2px 10px rgba(0,0,0,.6);}
+  .count .l{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(255,255,255,.7);}
+  .lp{position:absolute;top:14px;right:14px;z-index:2;}
+  .cue{position:absolute;left:12px;right:12px;bottom:12px;z-index:2;background:rgba(20,24,32,.82);backdrop-filter:blur(6px);
+    border-radius:12px;padding:9px 11px;font-size:12px;color:#cfd4dc;}
+  .motion{position:absolute;left:12px;right:12px;bottom:56px;height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden;z-index:2;}
+  .motion i{display:block;height:100%;width:0;background:var(--signal);transition:width .06s linear;}
+  .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--mut);font-size:14px;z-index:3;}
+  .controls{display:flex;gap:10px;margin-top:14px;}
+  .btn{flex:1;border:0;border-radius:14px;padding:14px;font-weight:800;font-size:15px;font-family:inherit;cursor:pointer;background:#20242c;color:var(--ink);}
+  .btn.primary{background:var(--signal);color:#0E1013;}
+  .btn.volt{background:var(--volt);color:#2b3400;}
+  .row{display:flex;gap:12px;margin-top:14px;}
+  .card{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;text-align:center;}
+  .card .v{font-family:var(--mono);font-weight:700;font-size:22px;}
+  .card .k{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);margin-top:3px;}
+  .field{margin-top:16px;}
+  .field span{display:block;font-size:12px;font-weight:700;color:var(--mut);margin-bottom:6px;}
+  input[type=range]{width:100%;accent-color:var(--signal);}
+  .note{margin-top:16px;font-size:11.5px;color:var(--mut);line-height:1.5;}
+  .note b{color:var(--good);}
+  a.back{color:var(--signal);font-size:12px;text-decoration:none;font-weight:700;}
+  .disc{font-size:11px;color:var(--amber);margin-top:10px;}
+  :focus-visible{outline:3px solid var(--signal);outline-offset:2px;}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand">Chronographe · Labo</div>
+    <a class="back" href="../index.html">← Retour à l’app</a>
+  </div>
+  <h1>Coach Silencieux</h1>
+  <p class="lead">Pose ton téléphone face à toi, cadre ton buste dans le repère, et l’app compte tes reps à partir du <b>mouvement</b> — 100 % sur l’appareil.</p>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <div class="roi"></div>
+    <div class="count"><div class="n" id="reps">0</div><div class="l">reps</div></div>
+    <div class="lp"><span class="pill" id="pill">prêt</span></div>
+    <div class="motion"><i id="motionbar"></i></div>
+    <div class="cue" id="cue">Touche « Démarrer » et autorise la caméra.</div>
+    <div class="msg" id="msg" hidden></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn primary" id="toggle">Démarrer</button>
+    <button class="btn" id="reset">Remettre à 0</button>
+  </div>
+
+  <div class="row">
+    <div class="card"><div class="v" id="tempo">0.0<span style="font-size:11px;color:var(--mut)">s</span></div><div class="k">Tempo / rep</div></div>
+    <div class="card"><div class="v" id="active">—</div><div class="k">État</div></div>
+  </div>
+
+  <div class="field">
+    <span>Sensibilité — <span id="sensval">50</span></span>
+    <input type="range" id="sens" min="5" max="95" value="50">
+  </div>
+
+  <p class="disc">⚠︎ Prototype (bêta). Compte les reps par cadence de mouvement — au mieux quand tu marques une brève pause entre chaque rep. La lecture de la trajectoire du coude viendra avec un modèle de pose.</p>
+  <p class="note"><b>🔒 Confidentialité :</b> le flux caméra est analysé en direct dans ton navigateur et <b>n’est ni enregistré ni envoyé</b> nulle part. Ferme la page et il ne reste rien.</p>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const video=$('video'), pill=$('pill'), cue=$('cue'), msg=$('msg'),
+        repsEl=$('reps'), bar=$('motionbar'), tempoEl=$('tempo'), activeEl=$('active'),
+        sens=$('sens'), sensval=$('sensval'), toggle=$('toggle'), resetBtn=$('reset');
+
+  let stream=null, running=false, raf=null;
+  const proc=document.createElement('canvas'); proc.width=96; proc.height=128;
+  const pctx=proc.getContext('2d',{willReadFrequently:true});
+  let prev=null, ema=0, reps=0, phase='still', lastRepAt=0, phaseStart=0, lastTempo=0;
+
+  function showMsg(t){ msg.hidden=false; msg.textContent=t; }
+  function hideMsg(){ msg.hidden=true; }
+
+  async function start(){
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:640}},audio:false});
+      video.srcObject=stream; await video.play();
+      running=true; hideMsg(); pill.textContent='en cours'; pill.classList.add('live');
+      cue.textContent='Cadre ton buste dans le repère et fais tes reps.';
+      toggle.textContent='Pause'; prev=null; loop();
+    }catch(e){
+      showMsg('Caméra indisponible ou refusée. Autorise l’accès caméra dans ton navigateur, puis réessaie. ('+(e && e.name || e)+')');
+    }
+  }
+  function stop(){
+    running=false; if(raf) cancelAnimationFrame(raf);
+    if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+    pill.textContent='en pause'; pill.classList.remove('live'); toggle.textContent='Reprendre';
+    activeEl.textContent='—'; bar.style.width='0%';
+  }
+
+  function loop(){
+    if(!running) return;
+    raf=requestAnimationFrame(loop);
+    if(video.readyState<2) return;
+    pctx.drawImage(video,0,0,proc.width,proc.height);
+    const img=pctx.getImageData(0,0,proc.width,proc.height).data;
+    // ROI centrale (64% central) en niveaux de gris
+    let sum=0, count=0;
+    const x0=proc.width*0.18|0, x1=proc.width*0.82|0, y0=proc.height*0.14|0, y1=proc.height*0.78|0;
+    const gray=new Float32Array(proc.width*proc.height);
+    for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){
+      const i=(y*proc.width+x)*4;
+      const g=(img[i]*0.3+img[i+1]*0.59+img[i+2]*0.11);
+      gray[y*proc.width+x]=g;
+      if(prev){ sum+=Math.abs(g-prev[y*proc.width+x]); count++; }
+    }
+    prev=gray;
+    if(!count){ return; }
+    const motion=sum/count/255; // 0..~1
+    ema=ema*0.6+motion*0.4;
+    const level=Math.min(1,ema*6);
+    bar.style.width=(level*100).toFixed(0)+'%';
+
+    // seuils dérivés de la sensibilité
+    const s=+sens.value/100;                 // 0.05..0.95
+    const hi=0.10*(1-s)+0.015;               // sensible => seuil bas
+    const lo=hi*0.5;
+    const now=performance.now();
+
+    if(phase==='still' && ema>hi){
+      phase='moving'; phaseStart=now; activeEl.textContent='mouvement';
+    } else if(phase==='moving' && ema<lo){
+      phase='still'; activeEl.textContent='repos';
+      // une rep = une salve de mouvement, si assez espacée (anti-rebond 350ms)
+      if(now-lastRepAt>350){
+        reps++; lastTempo=(now-phaseStart)/1000; lastRepAt=now;
+        repsEl.textContent=reps; tempoEl.innerHTML=lastTempo.toFixed(1)+'<span style="font-size:11px;color:var(--mut)">s</span>';
+        if(navigator.vibrate) navigator.vibrate(20);
+        pill.textContent=reps+' reps';
+      }
+    }
+  }
+
+  toggle.addEventListener('click',()=>{ running?stop():start(); });
+  resetBtn.addEventListener('click',()=>{ reps=0; repsEl.textContent='0'; tempoEl.innerHTML='0.0<span style="font-size:11px;color:var(--mut)">s</span>'; pill.textContent=running?'en cours':'prêt'; });
+  sens.addEventListener('input',()=>{ sensval.textContent=sens.value; });
+  window.addEventListener('pagehide',stop);
+
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    showMsg('Ce navigateur ne donne pas accès à la caméra. Essaie Safari (iOS) ou Chrome, en HTTPS.');
+    toggle.disabled=true;
+  }
+})();
+</script>
+</body>
+</html>

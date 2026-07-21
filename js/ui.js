@@ -321,6 +321,7 @@
     const hist = S().sessions.slice().reverse().slice(0, 12);
     const cons = Logic.consistencyWeeks(8);
     const bs = Logic.bodyStats();
+    const rc = Logic.rirCalibration();
     return `
     <h1 style="font-size:26px;margin-bottom:12px">Progrès</h1>
 
@@ -346,6 +347,12 @@
         ${Object.keys(bs.latest.measures || {}).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${Object.entries(bs.latest.measures).map(([k, v]) => `<span class="chip ghost">${esc(k)} ${v} cm</span>`).join('')}</div>` : ''}
       ` : `<div class="empty" style="padding:14px"><div class="big">Aucune mesure</div>Note ton poids pour suivre la tendance, utile en déficit.</div>`}
     </div>
+
+    ${rc.samples >= 3 ? `<h2 style="font-size:18px;margin:22px 2px 10px">Calibration RIR</h2>
+    <div class="card pad">
+      <div class="between"><div class="eyebrow">Précision de ton ressenti</div><span class="chip ${rc.bias >= 1.5 ? 'warn' : 'ok'} num">${rc.bias >= 1.5 ? 'à ajuster' : 'fiable'}</span></div>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">Sur tes ${rc.samples} séries menées à l’échec, tu annonçais en moyenne <b class="num">RIR ${rc.bias}</b>. ${rc.bias >= 1.5 ? `Tu surestimes tes reps en réserve d’environ ${Math.round(rc.bias)} — pousse un peu plus près de l’échec, surtout sur les isolations.` : 'Ton ressenti colle à la réalité — continue comme ça.'}</p>
+    </div>` : ''}
 
     <h2 style="font-size:18px;margin:22px 2px 10px">Progression par exercice</h2>
     ${exs.length ? `<div class="card">${exs.map(x => {
@@ -464,6 +471,12 @@
     </div>
 
     <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Labo · expérimental</div>
+      <p class="muted" style="font-size:12px;margin:0">Coach Silencieux : compte tes reps par la caméra, 100 % sur l’appareil, rien n’est enregistré. Bêta.</p>
+      <a class="btn block" href="./proto/coach-silencieux.html" style="text-decoration:none;display:flex;align-items:center;justify-content:center">Ouvrir le Coach Silencieux ▸</a>
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
       <div class="eyebrow">Repas</div>
       <div class="empty" style="padding:12px"><div class="big">Bientôt disponible</div>Le suivi des repas arrivera dans une prochaine version.</div>
     </div>
@@ -515,9 +528,15 @@
   // =====================================================================
   //  TIMER CHRONOGRAPHE (élément signature)
   // =====================================================================
+  // Wake Lock : garde l'écran allumé pendant le repos (iOS 16.4+, Chrome…). Sans effet si non supporté.
+  let wakeLock = null;
+  async function requestWake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+  function releaseWake() { try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {} }
+
   const R = 140, CIRC = 2 * Math.PI * R;
   function startTimer(seconds, exId) {
     stopTimer();
+    requestWake();
     const ex = S().ex(exId);
     const cue = ex && ex.elbowSensitive
       ? `<div class="timer-cue"><b>Coude sensible</b> — contrôle la trajectoire, garde le coude fixe, pas de verrouillage forcé en extension.</div>`
@@ -558,7 +577,7 @@
     try { if (Notification && Notification.permission === 'granted') new Notification('Repos terminé', { body: 'Prochaine série 💪', tag: 'rest', silent: false }); } catch (e) {}
     stopTimer();
   }
-  function stopTimer() { if (timer && timer.interval) clearInterval(timer.interval); timer = null; const t = document.getElementById('timer'); if (t) t.remove(); }
+  function stopTimer() { if (timer && timer.interval) clearInterval(timer.interval); timer = null; releaseWake(); const t = document.getElementById('timer'); if (t) t.remove(); }
 
   // =====================================================================
   //  DRAFT (démarrer / manipuler une séance)

@@ -256,6 +256,20 @@
     return { weeks, run };
   }
 
+  // ---------- Calibration du RIR (le RIR est peu fiable, surtout chez le débutant) ----------
+  // Événement de calibration : une série menée à l'échec (type 'fail') ou en AMRAP a un
+  // RIR réel ≈ 0. Le RIR annoncé sur cette série mesure donc l'erreur d'estimation.
+  function rirCalibration() {
+    const events = [];
+    for (const sess of S().sessions) for (const e of (sess.entries || [])) for (const s of e.sets) {
+      if (s.done && (s.type === 'fail' || s.type === 'amrap') && s.rir != null) events.push(s.rir);
+    }
+    const recent = events.slice(-12);
+    if (recent.length < 3) return { samples: recent.length };
+    const bias = +(recent.reduce((a, b) => a + b, 0) / recent.length).toFixed(1);
+    return { samples: recent.length, bias };
+  }
+
   // ---------- Suivi corporel ----------
   function bodyStats() {
     const list = (S().body || []).slice().sort((a, b) => a.date.localeCompare(b.date));
@@ -276,6 +290,6 @@
     e1rm, roundToIncrement, startOfWeek, occurrences, lastOccurrence, doneSets,
     progression, stagnation, prForEntry, weeklyVolume, estimateMinutes, activeBlocks,
     recompose, substitutes, fatigueSuggests4Day, deloadStatus, regularityDays,
-    plateCalc, warmupSets, e1rmSeries, loggedExercises, consistencyWeeks, bodyStats,
+    plateCalc, warmupSets, e1rmSeries, loggedExercises, consistencyWeeks, bodyStats, rirCalibration,
   };
 })();
