@@ -25,6 +25,7 @@
   function reqP(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
   function getAll(store) { return reqP(tx(store, 'readonly').getAll()); }
   function put(store, val) { return reqP(tx(store, 'readwrite').put(val)); }
+  function del(store, key) { return reqP(tx(store, 'readwrite').delete(key)); }
   function getMeta(key) { return reqP(tx('meta', 'readonly').get(key)); }
   function putMeta(key, value) { return put('meta', { key, value }); }
 
@@ -123,6 +124,7 @@
   const saveDraft = () => putMeta('draft', State.draft);
   const clearDraft = () => { State.draft = null; return putMeta('draft', null); };
   const saveBody = (entry) => put('body', entry);
+  const deleteSession = (id) => del('sessions', id);
 
   // ---- Rotation (suit l’usage, pas le calendrier) ----
   function refillQueue() {
@@ -165,7 +167,7 @@
 
   window.Store = {
     load, State, exMap, currentOrder, templateById,
-    saveSettings, saveProgram, saveExercise, saveSession, saveDraft, clearDraft, saveBody,
+    saveSettings, saveProgram, saveExercise, saveSession, saveDraft, clearDraft, saveBody, deleteSession,
     upcoming, todayTemplate, advanceRotation, bumpToFront, setMode, rebuildRotationForMode,
     // accès direct pour import/export
     _put: put, _getAll: getAll, _putMeta: putMeta,

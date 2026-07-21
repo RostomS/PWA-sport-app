@@ -409,7 +409,25 @@
     ${prs.length ? `<div class="card">${prs.slice(0, 8).map(p => `<div class="lib-item"><span class="chip pr">PR</span><div style="flex:1"><div class="ex-title" style="font-size:14px">${esc(p.name)}</div><div class="ex-meta">${esc(p.pr.label)}</div></div><div class="muted num" style="font-size:11px">${fmtDate(p.date)}</div></div>`).join('')}</div>` : `<div class="empty">Tes records apparaîtront ici dès ta première séance loggée.</div>`}
 
     <h2 style="font-size:18px;margin:22px 2px 10px">Historique</h2>
-    ${hist.length ? `<div class="card">${hist.map(s => `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:14px">${esc(s.name)}</div><div class="ex-meta">${s.entries.length} exos · ${s.entries.reduce((a, e) => a + e.sets.filter(x => x.done && x.type !== 'warm').length, 0)} séries${s.checkin ? ' · check-in fait' : ''}</div></div><div class="muted num" style="font-size:11px">${fmtDate(s.date)}</div></div>`).join('')}</div>` : `<div class="empty"><div class="big">Aucune séance encore</div>Lance ta première séance depuis l’accueil.</div>`}`;
+    ${hist.length ? `<div class="card">${hist.map(s => `<div class="lib-item prog-row" data-action="session-detail" data-id="${s.id}"><div style="flex:1;min-width:0"><div class="ex-title" style="font-size:14px">${esc(s.name)}</div><div class="ex-meta">${s.entries.length} exos · ${s.entries.reduce((a, e) => a + e.sets.filter(x => x.done && x.type !== 'warm').length, 0)} séries${s.checkin ? ' · check-in fait' : ''}${s.note ? ' · 📝' : ''}</div></div><div class="muted num" style="font-size:11px">${fmtDate(s.date)}</div></div>`).join('')}</div>` : `<div class="empty"><div class="big">Aucune séance encore</div>Lance ta première séance depuis l’accueil.</div>`}`;
+  }
+
+  function openSessionDetail(id) {
+    const s = S().sessions.find(x => x.id === id); if (!s) return;
+    const d = new Date(s.date);
+    const rows = s.entries.map(e => {
+      const work = e.sets.filter(x => x.done && x.type !== 'warm');
+      const best = work.reduce((a, x) => (x.weight || 0) * (x.reps || 0) > (a.weight || 0) * (a.reps || 0) ? x : a, work[0] || {});
+      return `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:13px">${esc(e.resolvedName || (S().ex(e.exId) || {}).name || e.exId)}</div><div class="ex-meta">${work.length} série${work.length > 1 ? 's' : ''}${best && best.weight != null ? ` · top ${best.weight} kg × ${best.reps}` : ''}</div></div>${(e.prs || []).length ? '<span class="chip pr">PR</span>' : ''}</div>`;
+    }).join('');
+    openSheet(`<div class="grab"></div>
+      <div class="eyebrow">${d.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' })}</div>
+      <h2 style="font-size:22px;margin:2px 0 12px">${esc(s.name)}</h2>
+      ${s.note ? `<div class="banner info" style="margin-bottom:12px"><div><div class="ttl">Note</div><div class="body">${esc(s.note)}</div></div></div>` : ''}
+      <div class="card">${rows || '<div class="empty" style="padding:12px">Séance sans série loggée.</div>'}</div>
+      ${s.checkin ? `<div class="ex-meta" style="margin-top:10px">Check-in · énergie ${['—', 'basse', 'correcte', 'top'][s.checkin.energy] || '—'} · sommeil ${['—', 'court', 'correct', 'excellent'][s.checkin.sleep] || '—'}</div>` : ''}
+      <button class="btn danger block" style="margin-top:16px" data-action="session-delete" data-id="${s.id}">Supprimer cette séance</button>
+      <p class="muted" style="font-size:11px;text-align:center;margin-top:8px">La rotation n’est pas affectée — seule l’analyse (volume, records) est recalculée.</p>`);
   }
 
   function openExProgress(id) {
@@ -683,10 +701,11 @@
 
     // 1) Récap de fin → 2) check-in → 3) persistance
     const recap = computeRecap(d, entries);
+    sessionNote = '';
     openRecap(recap, () => openCheckin(async (checkin) => {
       const session = {
         id: Date.now(), date: new Date().toISOString(), templateId: d.templateId, name: d.name, code: d.code,
-        entries, cardio: d.cardio.done ? d.cardio : null, checkin, timeBudget: d.timeBudget,
+        entries, cardio: d.cardio.done ? d.cardio : null, checkin, timeBudget: d.timeBudget, note: sessionNote || '',
       };
       await Store.saveSession(session);
       S().sessions.push(session);
@@ -726,11 +745,13 @@
       ${r.prs.length ? `<div class="banner volt" style="margin-top:12px"><div><div class="ttl">${r.prs.length} record${r.prs.length > 1 ? 's' : ''} battu${r.prs.length > 1 ? 's' : ''} 💥</div>${r.prs.map(p => `<div class="body">${esc(p.name)} · ${esc(p.label)}</div>`).join('')}</div></div>` : ''}
       ${muscleChips ? `<div class="card pad" style="margin-top:12px"><div class="eyebrow" style="margin-bottom:8px">Muscles touchés</div><div style="display:flex;gap:6px;flex-wrap:wrap">${muscleChips}</div></div>` : ''}
       ${r.cardio ? `<div class="ex-meta" style="margin-top:10px">Finisher · marche ${r.cardio.duration} min · ${r.cardio.incline}% · ${r.cardio.speed} km/h</div>` : ''}
-      <button class="btn primary block" style="margin-top:16px" data-action="recap-continue">Check-in fatigue ▸</button>
+      <label class="field" style="margin-top:14px"><span>Note de séance (optionnel)</span><textarea id="recap-note" rows="2" placeholder="Sensations, douleurs, énergie…"></textarea></label>
+      <button class="btn primary block" style="margin-top:14px" data-action="recap-continue">Check-in fatigue ▸</button>
       </div>`);
     recapContinue = onContinue;
   }
   let recapContinue = null;
+  let sessionNote = '';
 
   function openCheckin(cb) {
     const opt = (field, val, label) => `<button class="btn block" data-ck="${field}" data-v="${val}">${label}</button>`;
@@ -875,7 +896,17 @@
         const firstWork = blk.sets.find(s => (s.type || 'normal') !== 'warm') || blk.sets[0];
         openPlateSheet(num(firstWork && firstWork.weight) || 0, ex); break;
       }
-      case 'recap-continue': { closeSheet(); if (recapContinue) { const f = recapContinue; recapContinue = null; f(); } break; }
+      case 'recap-continue': {
+        const nEl = document.getElementById('recap-note'); sessionNote = nEl ? nEl.value.trim() : '';
+        closeSheet(); if (recapContinue) { const f = recapContinue; recapContinue = null; f(); } break;
+      }
+      case 'session-detail': openSessionDetail(+el.dataset.id); break;
+      case 'session-delete': {
+        const id = +el.dataset.id;
+        await Store.deleteSession(id);
+        S().sessions = S().sessions.filter(s => s.id !== id);
+        closeSheet(); render(); break;
+      }
       case 'ex-progress': openExProgress(el.dataset.id); break;
       case 'one-rm': openOneRM('', '', 'barre'); break;
       case 'one-rm-ex': { const ser = Logic.e1rmSeries(el.dataset.id); const top = ser.length ? ser[ser.length - 1].top : {}; const ex = S().ex(el.dataset.id); openOneRM(top.weight ?? '', top.reps ?? '', ex ? ex.equipment : 'barre'); break; }
