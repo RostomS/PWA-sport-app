@@ -1,7 +1,7 @@
 /* sw.js — Service worker : cache l'app shell pour un fonctionnement 100% hors-ligne.
    Stratégie : cache-first pour les assets de l'app, réseau en secours. Les données
    utilisateur vivent dans IndexedDB (jamais dans le cache), donc rien à synchroniser. */
-const CACHE = 'chrono-v1';
+const CACHE = 'chrono-v2';
 const ASSETS = [
   './',
   './index.html',

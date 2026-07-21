@@ -195,6 +195,36 @@ label.field > span { display: block; font-size: 12px; font-weight: 700; color: v
 .timer-controls { display: flex; gap: 10px; }
 .timer-controls .btn { background: rgba(255,255,255,.14); color: #fff; border: 0; }
 
+/* ---------- types de séries (index cliquable) ---------- */
+.set-row .sidx { appearance: none; -webkit-appearance: none; border: 1px solid var(--line); background: var(--paper);
+  border-radius: 8px; height: 30px; padding: 0; font-family: var(--mono); font-weight: 700; font-size: 12px; color: var(--ink); cursor: pointer; }
+.set-row .sidx.type-warm { background: transparent; color: var(--muted); }
+.set-row .sidx.type-drop { background: color-mix(in srgb, var(--steel) 15%, transparent); color: var(--accent-steel); border-color: transparent; }
+.set-row .sidx.type-fail { background: color-mix(in srgb, var(--amber) 24%, transparent); color: var(--amber-ink); border-color: transparent; }
+.set-row .sidx.type-amrap { background: var(--ink); color: var(--paper); border-color: transparent; }
+.set-row.is-warm input { opacity: .62; }
+.type-hint { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+
+/* ---------- plate calculator ---------- */
+.plate-visual { display: flex; align-items: center; justify-content: center; gap: 3px; padding: 14px 10px; background: var(--paper); border-radius: 14px; min-height: 84px; }
+.plate-visual .plate-sleeve { width: 34px; height: 6px; border-radius: 3px; background: linear-gradient(var(--muted), var(--ink-2)); }
+.plate-visual .plate-collar { width: 8px; height: 18px; border-radius: 2px; background: var(--muted); margin-left: 2px; }
+.plate-visual .disc { width: 14px; border-radius: 3px; background: var(--steel); color: #fff; display: flex; align-items: flex-end; justify-content: center;
+  font-family: var(--mono); font-size: 7.5px; font-weight: 700; padding-bottom: 2px; }
+.platelist { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); text-align: center; }
+
+/* ---------- récap de fin de séance ---------- */
+.recap-kpis { display: flex; gap: 8px; }
+.recap-kpi { flex: 1; background: var(--paper); border: 1px solid var(--line); border-radius: 13px; padding: 12px 8px; text-align: center; }
+.recap-kpi .v { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 21px; letter-spacing: -.02em; }
+.recap-kpi .v .u { font-size: 11px; color: var(--muted); font-weight: 600; }
+.recap-kpi .k { font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+
+/* ---------- sparklines / progrès ---------- */
+.spark { display: block; }
+.prog-row { cursor: pointer; }
+.prog-spark { width: 90px; flex: 0 0 90px; }
+
 /* ---------- volume dashboard ---------- */
 .vol-row { display: grid; grid-template-columns: 92px 1fr 52px; gap: 10px; align-items: center; margin-top: 12px; }
 .vol-row .name { font-weight: 700; font-size: 13px; }

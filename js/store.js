@@ -44,6 +44,8 @@
       mode: 6,
       restByRole: { compound: 150, isolation: 90 },
       increments: { 'haltère': 2, 'barre': 2.5, 'câble': 2.5, 'machine': 5, 'poids du corps': 1 },
+      barWeight: 20,
+      plates: [25, 20, 15, 10, 5, 2.5, 1.25],
       reminderTime: null,
       startDate: new Date().toISOString(),
       rotation: { queue: [], cyclePos: 0, mode: 6 },

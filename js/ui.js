@@ -14,10 +14,10 @@
     home: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
     volume: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 20V9M12 20V4M19 20v-7"/></svg>',
     lib: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3H18a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6.5A2.5 2.5 0 0 1 4 18.5v-13A2.5 2.5 0 0 1 6.5 3z"/><path d="M8 3v18"/></svg>',
-    track: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
+    progress: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 4 8-8"/><path d="M21 8v4M21 8h-4"/></svg>',
     more: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
   };
-  const TABS = [['home', 'Aujourd’hui', IC.home], ['volume', 'Volume', IC.volume], ['lib', 'Biblio', IC.lib], ['track', 'Régularité', IC.track], ['more', 'Réglages', IC.more]];
+  const TABS = [['home', 'Aujourd’hui', IC.home], ['volume', 'Volume', IC.volume], ['lib', 'Biblio', IC.lib], ['progress', 'Progrès', IC.progress], ['more', 'Réglages', IC.more]];
 
   function renderTabs() {
     const tb = document.getElementById('tabbar'); tb.hidden = false;
@@ -31,7 +31,7 @@
   //  RENDER dispatch
   // =====================================================================
   function render() {
-    const v = { home: viewHome, session: viewSession, volume: viewVolume, lib: viewLibrary, track: viewTrack, more: viewMore, program: viewProgram }[route] || viewHome;
+    const v = { home: viewHome, session: viewSession, volume: viewVolume, lib: viewLibrary, progress: viewProgress, more: viewMore, program: viewProgram }[route] || viewHome;
     app().innerHTML = `<div class="view">${topbar()}${v()}</div>`;
     renderTabs();
   }
@@ -85,7 +85,7 @@
 
     <div class="card pad" style="margin-top:22px">
       <div class="between"><div class="eyebrow">Régularité · 4 semaines</div>
-        <button class="btn ghost sm" data-nav="track">Détail</button></div>
+        <button class="btn ghost sm" data-nav="progress">Détail</button></div>
       ${miniRegularity()}
     </div>`;
   }
@@ -133,11 +133,15 @@
     const done = b.sets.some(s => s.done);
     const target = ex.perLeg ? `${b.sets.length}×${ex.repMin}${ex.repMax !== ex.repMin ? '-' + ex.repMax : ''}/jambe` : `${b.sets.length}×${ex.repMin}${ex.repMax !== ex.repMin ? '-' + ex.repMax : ''}`;
 
+    let wn = 0;
+    const glyphs = { warm: 'W', drop: 'D', fail: 'E', amrap: 'A' };
     const setRows = b.sets.map((st, si) => {
       const prev = last && last.entry.sets[si];
       const logged = st.done;
-      return `<div class="set-row ${logged ? 'logged' : ''}">
-        <span class="sidx">${si + 1}</span>
+      const type = st.type || 'normal';
+      const glyph = type === 'normal' ? String(++wn) : glyphs[type];
+      return `<div class="set-row ${logged ? 'logged' : ''} ${type === 'warm' ? 'is-warm' : ''}">
+        <button class="sidx type-${type}" data-action="cycle-type" data-b="${i}" data-s="${si}" aria-label="Type de série ${si + 1} — touche pour changer">${glyph}</button>
         <input class="num" inputmode="decimal" data-b="${i}" data-s="${si}" data-f="weight" value="${st.weight ?? ''}" placeholder="${prev ? prev.weight : 'kg'}" aria-label="Poids série ${si + 1}">
         <input class="num" inputmode="numeric" data-b="${i}" data-s="${si}" data-f="reps" value="${st.reps ?? ''}" placeholder="${prev ? prev.reps : ex.repMin}" aria-label="Reps série ${si + 1}">
         <input class="num" inputmode="numeric" data-b="${i}" data-s="${si}" data-f="rir" value="${st.rir ?? ''}" placeholder="RIR" aria-label="RIR série ${si + 1}">
@@ -155,24 +159,27 @@
           <div class="ex-target num">Cible ${target}</div>
         </div>
       </div>
-      <div class="set-row"><span></span><span class="colhead">kg</span><span class="colhead">reps</span><span class="colhead">rir</span><span></span></div>
+      <div class="set-row"><span class="colhead">série</span><span class="colhead">kg</span><span class="colhead">reps</span><span class="colhead">rir</span><span></span></div>
       ${setRows}
+      ${i === 0 ? '<div class="type-hint">Touche le numéro d’une série pour la marquer échauffement · drop · échec · AMRAP.</div>' : ''}
       ${deltaLine(b, last)}
       ${prog ? `<div class="suggestion">${esc(prog.label)}</div>` : ''}
       ${stag ? `<div class="suggestion warn">${esc(stag.label)}</div>` : ''}
       <div class="ex-actions">
+        <button class="btn sm ghost" data-action="warmup" data-b="${i}">+ échauffement</button>
         <button class="btn sm ghost" data-action="add-set" data-b="${i}">+ série</button>
         <button class="btn sm ghost" data-action="del-set" data-b="${i}">− série</button>
+        ${ex.equipment === 'barre' ? `<button class="btn sm ghost" data-action="plates" data-b="${i}">Plaques</button>` : ''}
         <button class="btn sm ghost" data-action="superset" data-b="${i}">Superset</button>
-        <button class="btn sm steel" data-action="substitute" data-b="${i}">Indisponible / machine prise</button>
+        <button class="btn sm steel" data-action="substitute" data-b="${i}">Machine prise</button>
       </div>
     </li>`;
   }
 
   function deltaLine(b, last) {
     if (!last) return '<div class="delta flat">Première fois sur cet exercice — on pose la référence.</div>';
-    const curBest = Math.max(...b.sets.map(s => s.done ? (s.weight || 0) * (s.reps || 0) : 0), 0);
-    const prevBest = Math.max(...last.entry.sets.map(s => (s.weight || 0) * (s.reps || 0)), 0);
+    const curBest = Math.max(...b.sets.map(s => (s.done && s.type !== 'warm') ? (s.weight || 0) * (s.reps || 0) : 0), 0);
+    const prevBest = Math.max(...last.entry.sets.map(s => s.type === 'warm' ? 0 : (s.weight || 0) * (s.reps || 0)), 0);
     if (!curBest) {
       const t = last.entry.sets.find(s => s.weight) || last.entry.sets[0];
       return `<div class="delta flat">Dernière fois · ${t ? `${t.weight ?? '—'} kg × ${t.reps ?? '—'}` : '—'}</div>`;
@@ -282,34 +289,95 @@
   }
 
   // =====================================================================
-  //  RÉGULARITÉ / SUIVI — calendrier, records, historique
+  //  PROGRÈS — courbes par exercice, régularité, records, historique
   // =====================================================================
-  function viewTrack() {
+  // Sparkline SVG (courbe + endpoint marqué), langage "relevé d'instrument".
+  function sparkSVG(vals, w, h, color) {
+    color = color || 'var(--signal)';
+    if (!vals || !vals.length) return '';
+    let v = vals.slice(); if (v.length === 1) v = [v[0], v[0]];
+    const min = Math.min(...v), max = Math.max(...v), rng = (max - min) || 1, n = v.length;
+    const pts = v.map((val, i) => [(i / (n - 1)) * w, h - 4 - ((val - min) / rng) * (h - 8)]);
+    const poly = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const e = pts[pts.length - 1];
+    return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" aria-hidden="true">
+      <polyline points="${poly}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${e[0].toFixed(1)}" cy="${e[1].toFixed(1)}" r="3" fill="${color}"/></svg>`;
+  }
+
+  function viewProgress() {
     const days = Logic.regularityDays(4);
     const today = new Date().toDateString();
     const weeks = [];
     for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
     const doneCount = days.filter(d => d.done).length;
+    const perWeek = (doneCount / 4).toFixed(1);
 
-    // records récents
     const prs = [];
     for (const sess of S().sessions) for (const e of (sess.entries || [])) for (const pr of (e.prs || [])) prs.push({ date: sess.date, name: e.resolvedName || (S().ex(e.exId)?.name), pr });
     prs.reverse();
 
+    const exs = Logic.loggedExercises();
     const hist = S().sessions.slice().reverse().slice(0, 12);
     return `
-    <h1 style="font-size:26px;margin-bottom:12px">Régularité</h1>
+    <h1 style="font-size:26px;margin-bottom:12px">Progrès</h1>
+
     <div class="card pad">
-      <div class="between"><div class="eyebrow">4 dernières semaines</div><span class="chip ghost num">${doneCount} séances</span></div>
+      <div class="between"><div class="eyebrow">Régularité · 4 semaines</div><span class="chip ok num">${perWeek} / sem.</span></div>
       <div style="margin-top:12px">${weeks.map(w => `<div class="cal" style="margin-bottom:6px">${w.map(d => `<div class="d ${d.done ? 'done' : ''} ${d.date.toDateString() === today ? 'today' : ''}"></div>`).join('')}</div>`).join('')}</div>
-      <p class="muted" style="font-size:12px;margin:10px 0 0">Chaque case pleine = une séance faite. Une pause n’efface rien et ne casse aucun compteur.</p>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">${doneCount} séance${doneCount > 1 ? 's' : ''} sur 4 semaines. Une pause n’efface rien et ne casse aucun compteur — on lit la régularité réelle, sans pression.</p>
     </div>
+
+    <h2 style="font-size:18px;margin:22px 2px 10px">Progression par exercice</h2>
+    ${exs.length ? `<div class="card">${exs.map(x => {
+      const ser = Logic.e1rmSeries(x.id); const vals = ser.map(p => p.value);
+      const first = vals[0] || 0, lastV = vals[vals.length - 1] || 0; const pct = first ? Math.round((lastV - first) / first * 100) : 0;
+      return `<div class="lib-item prog-row" data-action="ex-progress" data-id="${x.id}">
+        <div style="flex:1;min-width:0"><div class="ex-title" style="font-size:14px">${esc(x.ex.name)}</div><div class="ex-meta">1RM est. ${lastV.toFixed(0)} kg · ${ser.length} séance${ser.length > 1 ? 's' : ''}</div></div>
+        <div class="prog-spark">${sparkSVG(vals, 120, 34)}</div>
+        <div class="delta ${pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat'}" style="min-width:44px;justify-content:flex-end">${pct > 0 ? '+' : ''}${pct}%</div>
+      </div>`;
+    }).join('')}</div>` : `<div class="empty">Tes courbes de progression apparaîtront ici après quelques séances.</div>`}
 
     <h2 style="font-size:18px;margin:22px 2px 10px">Records</h2>
     ${prs.length ? `<div class="card">${prs.slice(0, 8).map(p => `<div class="lib-item"><span class="chip pr">PR</span><div style="flex:1"><div class="ex-title" style="font-size:14px">${esc(p.name)}</div><div class="ex-meta">${esc(p.pr.label)}</div></div><div class="muted num" style="font-size:11px">${fmtDate(p.date)}</div></div>`).join('')}</div>` : `<div class="empty">Tes records apparaîtront ici dès ta première séance loggée.</div>`}
 
     <h2 style="font-size:18px;margin:22px 2px 10px">Historique</h2>
-    ${hist.length ? `<div class="card">${hist.map(s => `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:14px">${esc(s.name)}</div><div class="ex-meta">${s.entries.length} exos · ${s.entries.reduce((a, e) => a + e.sets.filter(x => x.done).length, 0)} séries${s.checkin ? ' · check-in fait' : ''}</div></div><div class="muted num" style="font-size:11px">${fmtDate(s.date)}</div></div>`).join('')}</div>` : `<div class="empty"><div class="big">Aucune séance encore</div>Lance ta première séance depuis l’accueil.</div>`}`;
+    ${hist.length ? `<div class="card">${hist.map(s => `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:14px">${esc(s.name)}</div><div class="ex-meta">${s.entries.length} exos · ${s.entries.reduce((a, e) => a + e.sets.filter(x => x.done && x.type !== 'warm').length, 0)} séries${s.checkin ? ' · check-in fait' : ''}</div></div><div class="muted num" style="font-size:11px">${fmtDate(s.date)}</div></div>`).join('')}</div>` : `<div class="empty"><div class="big">Aucune séance encore</div>Lance ta première séance depuis l’accueil.</div>`}`;
+  }
+
+  function openExProgress(id) {
+    const ex = S().ex(id); if (!ex) return;
+    const ser = Logic.e1rmSeries(id);
+    const vals = ser.map(p => p.value), vols = ser.map(p => p.volume);
+    const first = vals[0] || 0, lastV = vals[vals.length - 1] || 0, pct = first ? Math.round((lastV - first) / first * 100) : 0;
+    openSheet(`<div class="grab"></div>
+      <h2 style="font-size:20px">${esc(ex.name)}</h2>
+      <div class="ex-meta" style="margin:2px 0 14px">${esc(ex.musclePrimary)} · ${esc(ex.equipment)}</div>
+      <div class="card pad"><div class="between"><div class="eyebrow">1RM estimé</div><span class="delta ${pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat'}">${pct > 0 ? '+' : ''}${pct}% · ${lastV.toFixed(1)} kg</span></div>
+        <div style="margin-top:10px">${sparkSVG(vals, 260, 78)}</div></div>
+      <div class="card pad" style="margin-top:12px"><div class="eyebrow">Volume par séance</div><div style="margin-top:10px">${sparkSVG(vols, 260, 60, 'var(--steel)')}</div></div>
+      <h3 style="font-size:15px;margin:16px 2px 8px">Séance par séance</h3>
+      <div class="card">${ser.slice().reverse().map(p => `<div class="lib-item"><div style="flex:1"><div class="ex-title num" style="font-size:13px">${p.top.weight} kg × ${p.top.reps}</div><div class="ex-meta">1RM est. ${p.value.toFixed(1)} kg · volume ${p.volume}</div></div><div class="muted num" style="font-size:11px">${fmtDate(p.date)}</div></div>`).join('')}</div>`);
+  }
+
+  // Plate calculator (barre)
+  function plateHTML(weight) {
+    const pc = Logic.plateCalc(num(weight) || 0, 'barre');
+    if (!pc) return '';
+    if (pc.tooLight) return `<div class="empty">La cible est sous le poids de la barre (${pc.bar} kg).</div>`;
+    const discs = pc.perSide.flatMap(x => Array.from({ length: x.count }, () => x.plate));
+    const bars = discs.map(p => `<div class="disc" style="height:${Math.round(26 + (p / 25) * 34)}px"><span>${p}</span></div>`).join('');
+    const list = pc.perSide.map(x => `${x.count}×${x.plate}`).join(' · ') || 'barre seule';
+    return `<div class="plate-visual"><div class="plate-sleeve"></div>${bars}<div class="plate-collar"></div></div>
+      <div class="platelist num" style="margin-top:10px">${pc.ok ? '' : '≈ '}${pc.loaded} kg = barre ${pc.bar} + <b>${list}</b> / côté</div>
+      ${pc.ok ? '' : '<div class="muted" style="font-size:12px;text-align:center;margin-top:6px">Charge exacte non atteignable avec tes disques — voici le plus proche en dessous.</div>'}`;
+  }
+  function openPlateSheet(weight, ex) {
+    openSheet(`<div class="grab"></div><h2>Plate calculator</h2>
+      <p class="muted" style="font-size:13px;margin:4px 0 12px">${esc(ex.name)} · barre ${S().settings.barWeight} kg. Disques à charger par côté.</p>
+      <label class="field"><span>Charge cible (kg)</span><input class="num" inputmode="decimal" id="plate-target" value="${weight || ''}" data-action="plate-target"></label>
+      <div id="plate-out" style="margin-top:16px">${plateHTML(weight)}</div>`);
   }
 
   const fmtDate = (iso) => { const d = new Date(iso); return d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }); };
@@ -340,6 +408,13 @@
       <div class="eyebrow">Incréments disponibles en salle</div>
       <p class="muted" style="font-size:12px;margin:0">Les suggestions de charge s’arrondiront à ces pas.</p>
       ${Object.entries(s.increments).map(([k, v]) => `<label class="field"><span>${esc(k)} — pas (kg)</span><input class="num" inputmode="decimal" value="${v}" data-action="increment" data-k="${esc(k)}"></label>`).join('')}
+    </div>
+
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Barre & disques</div>
+      <p class="muted" style="font-size:12px;margin:0">Sert au plate calculator pendant la séance.</p>
+      <label class="field"><span>Poids de la barre (kg)</span><input class="num" inputmode="decimal" value="${s.barWeight}" data-action="barweight"></label>
+      <label class="field"><span>Disques disponibles (kg, séparés par des virgules)</span><input class="num" value="${(s.plates || []).join(', ')}" data-action="plates-setting"></label>
     </div>
 
     <div class="card pad stack" style="margin-top:14px">
@@ -477,7 +552,7 @@
       const prog = Logic.progression(b.exId);
       const last = Logic.lastOccurrence(b.exId);
       const guessW = prog && prog.type === 'load' ? prog.to : (prog && prog.weight) || (last ? Math.max(...last.entry.sets.map(s => s.weight || 0)) : null);
-      const sets = Array.from({ length: b.sets }, () => ({ weight: guessW ?? '', reps: '', rir: 2, done: false }));
+      const sets = Array.from({ length: b.sets }, () => ({ weight: guessW ?? '', reps: '', rir: 2, done: false, type: 'normal' }));
       return { exId: b.exId, sets, substitutedFrom: null, superset: false };
     });
     return {
@@ -494,14 +569,16 @@
     const entries = d.blocks
       .map(b => {
         const ex = S().ex(b.exId);
-        const sets = b.sets.map(s => ({ weight: num(s.weight), reps: num(s.reps), rir: num(s.rir), done: !!s.done }));
+        const sets = b.sets.map(s => ({ weight: num(s.weight), reps: num(s.reps), rir: num(s.rir), done: !!s.done, type: s.type || 'normal' }));
         if (!sets.some(s => s.done)) return null;
         const prs = Logic.prForEntry(b.exId, sets, d.startedAt);
         return { exId: b.exId, resolvedName: ex ? ex.name : b.exId, musclePrimary: ex ? ex.musclePrimary : '', role: ex ? ex.role : 'isolation', substitutedFrom: b.substitutedFrom, sets, prs };
       })
       .filter(Boolean);
-    // check-in fatigue en 2 taps
-    openCheckin(async (checkin) => {
+
+    // 1) Récap de fin → 2) check-in → 3) persistance
+    const recap = computeRecap(d, entries);
+    openRecap(recap, () => openCheckin(async (checkin) => {
       const session = {
         id: Date.now(), date: new Date().toISOString(), templateId: d.templateId, name: d.name, code: d.code,
         entries, cardio: d.cardio.done ? d.cardio : null, checkin, timeBudget: d.timeBudget,
@@ -510,12 +587,45 @@
       S().sessions.push(session);
       await Store.advanceRotation(d.templateId);
       await Store.clearDraft();
-      const allPr = entries.flatMap(e => (e.prs || []).map(p => ({ name: e.resolvedName, label: p.label })));
       closeSheet();
       go('home');
-      if (allPr.length) showPrCelebration(allPr);
-    });
+    }));
   }
+
+  function computeRecap(d, entries) {
+    let volume = 0, workingSets = 0;
+    const muscles = {};
+    for (const e of entries) for (const s of e.sets) {
+      if (!s.done || s.type === 'warm') continue;
+      volume += (s.weight || 0) * (s.reps || 0);
+      workingSets++;
+      muscles[e.musclePrimary] = (muscles[e.musclePrimary] || 0) + 1;
+    }
+    const prs = entries.flatMap(e => (e.prs || []).map(p => ({ name: e.resolvedName, label: p.label })));
+    const duration = Math.max(1, Math.round((Date.now() - new Date(d.startedAt).getTime()) / 60000));
+    return { name: d.name, volume: Math.round(volume), volumeT: (volume / 1000), workingSets, muscles, prs, duration, cardio: d.cardio.done ? d.cardio : null };
+  }
+
+  function openRecap(r, onContinue) {
+    const muscleChips = Object.entries(r.muscles).sort((a, b) => b[1] - a[1])
+      .map(([m, n]) => `<span class="chip ok" style="font-size:11px">${esc(m)} ${n}</span>`).join(' ');
+    openSheet(`<div class="grab"></div>
+      <div class="view">
+      <div class="eyebrow">Séance terminée</div>
+      <h2 style="font-size:24px;margin:4px 0 14px">${esc(r.name)}, bouclé.</h2>
+      <div class="recap-kpis">
+        <div class="recap-kpi"><div class="v num">${r.volumeT >= 1 ? r.volumeT.toFixed(1) : r.volume}<span class="u">${r.volumeT >= 1 ? ' t' : ' kg'}</span></div><div class="k">Volume travaillé</div></div>
+        <div class="recap-kpi"><div class="v num">${r.duration}<span class="u"> min</span></div><div class="k">Durée réelle</div></div>
+        <div class="recap-kpi"><div class="v num">${r.workingSets}</div><div class="k">Séries de travail</div></div>
+      </div>
+      ${r.prs.length ? `<div class="banner volt" style="margin-top:12px"><div><div class="ttl">${r.prs.length} record${r.prs.length > 1 ? 's' : ''} battu${r.prs.length > 1 ? 's' : ''} 💥</div>${r.prs.map(p => `<div class="body">${esc(p.name)} · ${esc(p.label)}</div>`).join('')}</div></div>` : ''}
+      ${muscleChips ? `<div class="card pad" style="margin-top:12px"><div class="eyebrow" style="margin-bottom:8px">Muscles touchés</div><div style="display:flex;gap:6px;flex-wrap:wrap">${muscleChips}</div></div>` : ''}
+      ${r.cardio ? `<div class="ex-meta" style="margin-top:10px">Finisher · marche ${r.cardio.duration} min · ${r.cardio.incline}% · ${r.cardio.speed} km/h</div>` : ''}
+      <button class="btn primary block" style="margin-top:16px" data-action="recap-continue">Check-in fatigue ▸</button>
+      </div>`);
+    recapContinue = onContinue;
+  }
+  let recapContinue = null;
 
   function openCheckin(cb) {
     const opt = (field, val, label) => `<button class="btn block" data-ck="${field}" data-v="${val}">${label}</button>`;
@@ -650,6 +760,28 @@
       case 'del-set': { const b = +el.dataset.b; if (d.blocks[b].sets.length > 1) d.blocks[b].sets.pop(); await Store.saveDraft(); render(); break; }
       case 'superset': { const b = +el.dataset.b; d.blocks[b].superset = !d.blocks[b].superset; await Store.saveDraft(); render(); break; }
 
+      // ---- types de séries ----
+      case 'cycle-type': {
+        const b = +el.dataset.b, s = +el.dataset.s; const order = ['normal', 'warm', 'drop', 'fail', 'amrap'];
+        const set = d.blocks[b].sets[s]; set.type = order[(order.indexOf(set.type || 'normal') + 1) % order.length];
+        await Store.saveDraft(); render(); break;
+      }
+      case 'warmup': {
+        const b = +el.dataset.b; const blk = d.blocks[b]; const ex = S().ex(blk.exId);
+        const firstWork = blk.sets.find(s => (s.type || 'normal') !== 'warm');
+        const w = num(firstWork && firstWork.weight);
+        const warm = Logic.warmupSets(w, ex.equipment);
+        if (!warm.length) { openSheet('<div class="grab"></div><div class="empty"><div class="big">Charge de travail manquante</div>Renseigne d’abord le poids de ta première série pour générer l’échauffement.</div><button class="btn primary block" data-action="close-sheet">OK</button>'); break; }
+        blk.sets = warm.concat(blk.sets); await Store.saveDraft(); render(); break;
+      }
+      case 'plates': {
+        const b = +el.dataset.b; const blk = d.blocks[b]; const ex = S().ex(blk.exId);
+        const firstWork = blk.sets.find(s => (s.type || 'normal') !== 'warm') || blk.sets[0];
+        openPlateSheet(num(firstWork && firstWork.weight) || 0, ex); break;
+      }
+      case 'recap-continue': { closeSheet(); if (recapContinue) { const f = recapContinue; recapContinue = null; f(); } break; }
+      case 'ex-progress': openExProgress(el.dataset.id); break;
+
       // ---- substitution ----
       case 'substitute': {
         const b = +el.dataset.b; const cur = S().ex(d.blocks[b].exId);
@@ -743,6 +875,9 @@
       case 'increment': S().settings.increments[t.dataset.k] = +t.value || 1; await Store.saveSettings(); break;
       case 'rest': S().settings.restByRole[t.dataset.k] = +t.value || 60; await Store.saveSettings(); break;
       case 'reminder-time': S().settings.reminderTime = t.value; await Store.saveSettings(); break;
+      case 'barweight': S().settings.barWeight = +t.value || 20; await Store.saveSettings(); break;
+      case 'plates-setting': S().settings.plates = t.value.split(',').map(x => parseFloat(x.trim())).filter(x => x > 0).sort((a, b) => b - a); await Store.saveSettings(); break;
+      case 'plate-target': { const out = document.getElementById('plate-out'); if (out) out.innerHTML = plateHTML(t.value); break; }
     }
   }
 
@@ -798,7 +933,7 @@
     // (tous rendus hors de #app).
     document.addEventListener('click', onClick);
     document.addEventListener('change', onChange);
-    document.addEventListener('input', (e) => { if (e.target.dataset && (e.target.dataset.action === 'cardio-dur' || e.target.dataset.action === 'lib-search')) onChange(e); });
+    document.addEventListener('input', (e) => { const a = e.target.dataset && e.target.dataset.action; if (a === 'cardio-dur' || a === 'lib-search' || a === 'plate-target') onChange(e); });
     scheduleReminder();
     render();
   }

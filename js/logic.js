@@ -27,7 +27,9 @@
   }
   const lastOccurrence = (exId) => { const o = occurrences(exId); return o.length ? o[o.length - 1] : null; };
 
-  function doneSets(entry) { return entry.sets.filter(s => s.done && (s.reps || 0) > 0); }
+  // Séries "de travail" : validées, avec reps, et NON d'échauffement (l'échauffement
+  // ne compte ni dans le volume, ni dans la progression, ni dans les records).
+  function doneSets(entry) { return entry.sets.filter(s => s.done && (s.reps || 0) > 0 && s.type !== 'warm'); }
 
   // ---------- 4. Moteur de double progression ----------
   function progression(exId) {
@@ -69,10 +71,11 @@
     for (const sess of S().sessions) {
       if (beforeDate && sess.date >= beforeDate) continue;
       const e = sess.entries.find(en => en.exId === exId); if (!e) continue;
-      for (const st of e.sets) { if (!st.done) continue; maxW = Math.max(maxW, st.weight || 0); maxVol = Math.max(maxVol, (st.weight || 0) * (st.reps || 0)); }
+      for (const st of e.sets) { if (!st.done || st.type === 'warm') continue; maxW = Math.max(maxW, st.weight || 0); maxVol = Math.max(maxVol, (st.weight || 0) * (st.reps || 0)); }
     }
-    const curW = Math.max(...sets.map(s => s.done ? (s.weight || 0) : 0), 0);
-    const curVol = Math.max(...sets.map(s => s.done ? (s.weight || 0) * (s.reps || 0) : 0), 0);
+    const work = sets.filter(s => s.done && s.type !== 'warm');
+    const curW = Math.max(...work.map(s => s.weight || 0), 0);
+    const curVol = Math.max(...work.map(s => (s.weight || 0) * (s.reps || 0)), 0);
     const badges = [];
     if (curW > maxW && curW > 0) badges.push({ kind: 'weight', value: curW, label: `Record de charge · ${curW} kg` });
     if (curVol > maxVol && curVol > 0) badges.push({ kind: 'volume', value: curVol, label: `Record de volume · ${curVol} kg×reps` });
@@ -87,7 +90,7 @@
       if (startOfWeek(new Date(sess.date)).getTime() !== wk) continue;
       for (const e of sess.entries) {
         const ex = S().ex(e.exId); if (!ex) continue;
-        const nDone = e.sets.filter(s => s.done && (s.reps || 0) > 0).length;
+        const nDone = e.sets.filter(s => s.done && (s.reps || 0) > 0 && s.type !== 'warm').length;
         if (counts[ex.musclePrimary] != null) counts[ex.musclePrimary] += nDone;
       }
     }
@@ -187,9 +190,60 @@
     return out;
   }
 
+  // ---------- Plate calculator : décompose une charge en disques par côté ----------
+  function plateCalc(target, equipment) {
+    if (equipment !== 'barre') return null;
+    const bar = S().settings.barWeight || 20;
+    const plates = (S().settings.plates || [25, 20, 15, 10, 5, 2.5, 1.25]).slice().sort((a, b) => b - a);
+    let perSide = (target - bar) / 2;
+    if (perSide < 0) return { bar, target, ok: false, tooLight: true, perSide: [] };
+    const out = [];
+    for (const p of plates) {
+      const n = Math.floor(perSide / p + 1e-6);
+      if (n > 0) { out.push({ plate: p, count: n }); perSide = +(perSide - n * p).toFixed(3); }
+    }
+    const loaded = bar + 2 * out.reduce((a, x) => a + x.plate * x.count, 0);
+    return { bar, target, perSide: out, ok: Math.abs(loaded - target) < 0.01, loaded };
+  }
+
+  // ---------- Générateur de séries d'échauffement (ramp vers la charge de travail) ----------
+  function warmupSets(workingWeight, equipment) {
+    if (!workingWeight || workingWeight <= 0) return [];
+    const pcts = [[0.5, 8], [0.7, 5], [0.85, 3]];
+    const seen = new Set();
+    const out = [];
+    for (const [p, reps] of pcts) {
+      const w = roundToIncrement(workingWeight * p, equipment);
+      if (w > 0 && w < workingWeight && !seen.has(w)) { seen.add(w); out.push({ weight: w, reps, rir: null, done: false, type: 'warm' }); }
+    }
+    return out;
+  }
+
+  // ---------- Séries temporelles pour les graphes de progression ----------
+  function e1rmSeries(exId) {
+    return occurrences(exId).map(o => {
+      const sets = doneSets(o.entry);
+      if (!sets.length) return null;
+      let best = sets[0];
+      for (const s of sets) if (e1rm(s.weight, s.reps) > e1rm(best.weight, best.reps)) best = s;
+      return { date: o.date, value: +e1rm(best.weight, best.reps).toFixed(1), top: { weight: best.weight, reps: best.reps },
+        volume: sets.reduce((a, s) => a + (s.weight || 0) * (s.reps || 0), 0) };
+    }).filter(Boolean);
+  }
+
+  // Exercices déjà loggés (pour la liste de l'onglet Progrès), triés par récence.
+  function loggedExercises() {
+    const last = {};
+    for (const sess of S().sessions) for (const e of sess.entries)
+      if (e.sets.some(s => s.done && s.type !== 'warm')) last[e.exId] = sess.date;
+    return Object.keys(last).map(id => ({ id, date: last[id], ex: S().ex(id) }))
+      .filter(x => x.ex).sort((a, b) => b.date.localeCompare(a.date));
+  }
+
   window.Logic = {
     e1rm, roundToIncrement, startOfWeek, occurrences, lastOccurrence, doneSets,
     progression, stagnation, prForEntry, weeklyVolume, estimateMinutes, activeBlocks,
     recompose, substitutes, fatigueSuggests4Day, deloadStatus, regularityDays,
+    plateCalc, warmupSets, e1rmSeries, loggedExercises,
   };
 })();
