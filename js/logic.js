@@ -240,10 +240,42 @@
       .filter(x => x.ex).sort((a, b) => b.date.localeCompare(a.date));
   }
 
+  // ---------- Bande de régularité (positive, jamais punitive) ----------
+  function consistencyWeeks(n = 8) {
+    const trained = new Set(S().sessions.map(s => startOfWeek(new Date(s.date)).getTime()));
+    const now = startOfWeek(new Date()).getTime();
+    const weeks = [];
+    for (let i = n - 1; i >= 0; i--) weeks.push({ trained: trained.has(now - i * 7 * 864e5) });
+    // "run" = semaines actives d'affilée ; la semaine en cours non encore entraînée ne casse rien.
+    let run = 0, grace = false;
+    for (let i = weeks.length - 1; i >= 0; i--) {
+      if (weeks[i].trained) run++;
+      else if (i === weeks.length - 1 && !grace) { grace = true; continue; }
+      else break;
+    }
+    return { weeks, run };
+  }
+
+  // ---------- Suivi corporel ----------
+  function bodyStats() {
+    const list = (S().body || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+    if (!list.length) return { count: 0, series: [], latest: null };
+    const withW = list.filter(e => e.weight != null);
+    const latest = list[list.length - 1];
+    const series = withW.map(e => e.weight);
+    let delta = null, spanDays = null;
+    if (withW.length >= 2) {
+      const ref = withW[0];
+      delta = +(withW[withW.length - 1].weight - ref.weight).toFixed(1);
+      spanDays = Math.round((new Date(withW[withW.length - 1].date) - new Date(ref.date)) / 864e5);
+    }
+    return { count: list.length, series, latest, delta, spanDays, weightCount: withW.length };
+  }
+
   window.Logic = {
     e1rm, roundToIncrement, startOfWeek, occurrences, lastOccurrence, doneSets,
     progression, stagnation, prForEntry, weeklyVolume, estimateMinutes, activeBlocks,
     recompose, substitutes, fatigueSuggests4Day, deloadStatus, regularityDays,
-    plateCalc, warmupSets, e1rmSeries, loggedExercises,
+    plateCalc, warmupSets, e1rmSeries, loggedExercises, consistencyWeeks, bodyStats,
   };
 })();

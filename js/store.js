@@ -3,7 +3,7 @@
    synchrone fluide, on persiste en asynchrone. Stores : exercises, sessions, meta. */
 (function () {
   const DB_NAME = 'chrono-musculation';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
 
   function openDB() {
     return new Promise((resolve, reject) => {
@@ -13,6 +13,7 @@
         if (!db.objectStoreNames.contains('exercises')) db.createObjectStore('exercises', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' });
+        if (!db.objectStoreNames.contains('body')) db.createObjectStore('body', { keyPath: 'id' }); // v2 : suivi corporel
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -41,6 +42,9 @@
 
   function defaultSettings() {
     return {
+      onboarded: false,
+      profile: {},           // objectif, expérience, etc. (rempli à l'onboarding)
+      plans: [],             // plans "si-alors" : [{ id, day, time, anchor }]
       mode: 6,
       restByRole: { compound: 150, isolation: 90 },
       increments: { 'haltère': 2, 'barre': 2.5, 'câble': 2.5, 'machine': 5, 'poids du corps': 1 },
@@ -81,11 +85,15 @@
     State.exercises = exs;
 
     State.sessions = (await getAll('sessions')).sort((a, b) => a.date.localeCompare(b.date));
+    State.body = (await getAll('body')).sort((a, b) => a.date.localeCompare(b.date));
 
     let s = (await getMeta('settings'))?.value;
+    const firstRun = !s;
     if (!s) { s = defaultSettings(); await putMeta('settings', s); }
     // migration douce des clés manquantes
     State.settings = Object.assign(defaultSettings(), s);
+    // Utilisateur déjà installé (avant l'onboarding) : ne pas lui réimposer l'intro.
+    if (!firstRun && s.onboarded === undefined) State.settings.onboarded = true;
 
     let p6 = (await getMeta('program6'))?.value;
     if (!p6) { p6 = seedProgram(DATA.PROGRAM_6); await putMeta('program6', p6); }
@@ -114,6 +122,7 @@
   const saveSession = (s) => put('sessions', s);
   const saveDraft = () => putMeta('draft', State.draft);
   const clearDraft = () => { State.draft = null; return putMeta('draft', null); };
+  const saveBody = (entry) => put('body', entry);
 
   // ---- Rotation (suit l’usage, pas le calendrier) ----
   function refillQueue() {
@@ -156,7 +165,7 @@
 
   window.Store = {
     load, State, exMap, currentOrder, templateById,
-    saveSettings, saveProgram, saveExercise, saveSession, saveDraft, clearDraft,
+    saveSettings, saveProgram, saveExercise, saveSession, saveDraft, clearDraft, saveBody,
     upcoming, todayTemplate, advanceRotation, bumpToFront, setMode, rebuildRotationForMode,
     // accès direct pour import/export
     _put: put, _getAll: getAll, _putMeta: putMeta,

@@ -319,13 +319,32 @@
 
     const exs = Logic.loggedExercises();
     const hist = S().sessions.slice().reverse().slice(0, 12);
+    const cons = Logic.consistencyWeeks(8);
+    const bs = Logic.bodyStats();
     return `
     <h1 style="font-size:26px;margin-bottom:12px">Progrès</h1>
 
     <div class="card pad">
       <div class="between"><div class="eyebrow">Régularité · 4 semaines</div><span class="chip ok num">${perWeek} / sem.</span></div>
       <div style="margin-top:12px">${weeks.map(w => `<div class="cal" style="margin-bottom:6px">${w.map(d => `<div class="d ${d.done ? 'done' : ''} ${d.date.toDateString() === today ? 'today' : ''}"></div>`).join('')}</div>`).join('')}</div>
+      <div class="cons">
+        <div class="cons-band">${cons.weeks.map(w => `<span class="cpip ${w.trained ? 'on' : ''}"></span>`).join('')}</div>
+        <div class="cons-msg">${cons.run > 0 ? `💪 ${cons.run} semaine${cons.run > 1 ? 's' : ''} active${cons.run > 1 ? 's' : ''} d’affilée` : 'Nouvelle semaine — la première séance relance la dynamique.'}</div>
+      </div>
       <p class="muted" style="font-size:12px;margin:10px 0 0">${doneCount} séance${doneCount > 1 ? 's' : ''} sur 4 semaines. Une pause n’efface rien et ne casse aucun compteur — on lit la régularité réelle, sans pression.</p>
+    </div>
+
+    <h2 style="font-size:18px;margin:22px 2px 10px">Corps</h2>
+    <div class="card pad">
+      <div class="between"><div class="eyebrow">Poids de corps</div><button class="btn ghost sm" data-action="body-add">+ Mesure</button></div>
+      ${bs.count ? `
+        <div class="row" style="align-items:baseline;gap:12px;margin-top:8px">
+          <span class="num" style="font-size:28px;font-weight:700">${bs.latest.weight != null ? bs.latest.weight : '—'}<span style="font-size:13px" class="muted"> kg</span></span>
+          ${bs.delta != null ? `<span class="delta ${bs.delta < 0 ? 'up' : bs.delta > 0 ? 'down' : 'flat'}">${bs.delta > 0 ? '+' : ''}${bs.delta} kg${bs.spanDays ? ` · ${bs.spanDays} j` : ''}</span>` : ''}
+        </div>
+        ${bs.series.length > 1 ? `<div style="margin-top:10px">${sparkSVG(bs.series, 260, 60, 'var(--steel)')}</div>` : ''}
+        ${Object.keys(bs.latest.measures || {}).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${Object.entries(bs.latest.measures).map(([k, v]) => `<span class="chip ghost">${esc(k)} ${v} cm</span>`).join('')}</div>` : ''}
+      ` : `<div class="empty" style="padding:14px"><div class="big">Aucune mesure</div>Note ton poids pour suivre la tendance, utile en déficit.</div>`}
     </div>
 
     <h2 style="font-size:18px;margin:22px 2px 10px">Progression par exercice</h2>
@@ -426,10 +445,11 @@
     </div>
 
     <div class="card pad stack" style="margin-top:14px">
-      <div class="eyebrow">Rappel quotidien</div>
-      <p class="muted" style="font-size:12px;margin:0">Notification locale (aucun serveur) avec la séance du jour.</p>
-      <label class="field"><span>Heure</span><input type="time" value="${s.reminderTime || ''}" data-action="reminder-time"></label>
-      <button class="btn block" data-action="enable-reminder">${s.reminderTime ? 'Rappel actif · ' + s.reminderTime : 'Activer le rappel'}</button>
+      <div class="eyebrow">Plans & rappels</div>
+      <p class="muted" style="font-size:12px;margin:0">« Si [jour · heure], alors ta séance. » Le rappel s’accroche à ce moment — notification locale, aucun serveur.</p>
+      ${(s.plans && s.plans.length) ? `<div style="display:flex;flex-direction:column;gap:8px">${s.plans.slice().sort((a, b) => a.day - b.day || a.time.localeCompare(b.time)).map(p => `<div class="plan-item"><div style="font-size:13px"><b>${DAY_NAMES[p.day]}</b> · <span class="num">${p.time}</span>${p.anchor ? ` · <span class="muted">${esc(p.anchor)}</span>` : ''}</div><button class="btn ghost sm danger" data-action="plan-remove" data-id="${esc(p.id)}">✕</button></div>`).join('')}</div>` : '<div class="muted" style="font-size:12px">Aucun plan pour l’instant.</div>'}
+      <button class="btn block" data-action="add-plan">+ Ajouter un plan</button>
+      <button class="btn block" data-action="enable-reminder">${(typeof Notification !== 'undefined' && Notification.permission === 'granted') ? 'Rappels activés ✓' : 'Activer les rappels'}</button>
     </div>
 
     <div class="card pad stack" style="margin-top:14px">
@@ -672,7 +692,7 @@
     const data = {
       _app: 'chronographe', _version: 1, exportedAt: new Date().toISOString(),
       exercises: S().exercises, sessions: S().sessions, settings: S().settings,
-      program6: S().program[6], program4: S().program[4],
+      program6: S().program[6], program4: S().program[4], body: S().body || [],
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -690,6 +710,7 @@
           if (d._app !== 'chronographe') throw new Error('format');
           for (const e of d.exercises) await Store.saveExercise(e);
           for (const s of d.sessions) await Store.saveSession(s);
+          for (const bx of (d.body || [])) await Store.saveBody(bx);
           S().settings = d.settings; await Store.saveSettings();
           S().program[6] = d.program6; S().program[4] = d.program4; await Store.saveProgram();
           location.reload();
@@ -781,6 +802,35 @@
       }
       case 'recap-continue': { closeSheet(); if (recapContinue) { const f = recapContinue; recapContinue = null; f(); } break; }
       case 'ex-progress': openExProgress(el.dataset.id); break;
+
+      // ---- onboarding ----
+      case 'onb-next': onb.step++; showOnboard(); break;
+      case 'onb-back': onb.step--; showOnboard(); break;
+      case 'onb-skip': { S().settings.onboarded = true; await Store.saveSettings(); onb = null; closeOnboard(); go('home'); break; }
+      case 'onb-goal': onb.goal = el.dataset.v; showOnboard(); break;
+      case 'onb-exp': onb.experience = el.dataset.v; showOnboard(); break;
+      case 'onb-mode': onb.mode = +el.dataset.v; showOnboard(); break;
+      case 'onb-day': { const dd = +el.dataset.d; const i = onb.planDays.indexOf(dd); if (i >= 0) onb.planDays.splice(i, 1); else onb.planDays.push(dd); showOnboard(); break; }
+      case 'onb-finish': await finishOnboarding(); break;
+
+      // ---- suivi corporel ----
+      case 'body-add': openBodySheet(); break;
+      case 'body-save': await saveBodyForm(); break;
+
+      // ---- plans "si-alors" ----
+      case 'add-plan': openPlanSheet(); break;
+      case 'plan-day-toggle': el.classList.toggle('on'); break;
+      case 'plan-create': {
+        const sheet = document.getElementById('sheet');
+        const days = [...sheet.querySelectorAll('.day-chip.on')].map(x => +x.dataset.d);
+        if (!days.length) { sheet.querySelector('#plan-days').classList.add('shake'); break; }
+        const time = sheet.querySelector('#plan-time').value || '18:00';
+        const anchor = sheet.querySelector('#plan-anchor').value.trim();
+        const plans = S().settings.plans || (S().settings.plans = []);
+        days.forEach(dd => plans.push({ id: 'p' + dd + '_' + Date.now() + Math.random().toString(36).slice(2, 5), day: dd, time, anchor }));
+        await Store.saveSettings(); scheduleReminder(); closeSheet(); render(); break;
+      }
+      case 'plan-remove': { S().settings.plans = (S().settings.plans || []).filter(p => p.id !== el.dataset.id); await Store.saveSettings(); scheduleReminder(); render(); break; }
 
       // ---- substitution ----
       case 'substitute': {
@@ -875,6 +925,9 @@
       case 'increment': S().settings.increments[t.dataset.k] = +t.value || 1; await Store.saveSettings(); break;
       case 'rest': S().settings.restByRole[t.dataset.k] = +t.value || 60; await Store.saveSettings(); break;
       case 'reminder-time': S().settings.reminderTime = t.value; await Store.saveSettings(); break;
+      case 'onb-inc': if (onb) onb.increments[t.dataset.k] = +t.value || 1; break;
+      case 'onb-weight': if (onb) onb.weight = t.value; break;
+      case 'onb-time': if (onb) onb.planTime = t.value; break;
       case 'barweight': S().settings.barWeight = +t.value || 20; await Store.saveSettings(); break;
       case 'plates-setting': S().settings.plates = t.value.split(',').map(x => parseFloat(x.trim())).filter(x => x > 0).sort((a, b) => b - a); await Store.saveSettings(); break;
       case 'plate-target': { const out = document.getElementById('plate-out'); if (out) out.innerHTML = plateHTML(t.value); break; }
@@ -909,22 +962,165 @@
     let perm = Notification.permission;
     if (perm === 'default') perm = await Notification.requestPermission();
     if (perm !== 'granted') { alert('Autorise les notifications pour recevoir le rappel.'); return; }
-    if (!S().settings.reminderTime) { alert('Choisis d’abord une heure de rappel.'); return; }
+    if (!(S().settings.plans && S().settings.plans.length) && !S().settings.reminderTime) { alert('Ajoute d’abord un plan pour programmer un rappel.'); return; }
     scheduleReminder();
     render();
+  }
+  const DAY_NAMES = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+  // Prochaine occurrence d'un plan "si-alors" (ou repli sur l'ancien rappel quotidien).
+  function nextPlanDate() {
+    const now = new Date(); const plans = S().settings.plans || [];
+    if (!plans.length) {
+      const time = S().settings.reminderTime; if (!time) return null;
+      const [h, m] = time.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0);
+      if (d <= now) d.setDate(d.getDate() + 1); return { date: d, plan: null };
+    }
+    const cur = (now.getDay() + 6) % 7; // lundi = 0
+    let best = null;
+    for (const p of plans) {
+      const [h, m] = p.time.split(':').map(Number);
+      const d = new Date(now); d.setDate(now.getDate() + ((p.day - cur + 7) % 7)); d.setHours(h, m, 0, 0);
+      if (d <= now) d.setDate(d.getDate() + 7);
+      if (!best || d < best.date) best = { date: d, plan: p };
+    }
+    return best;
   }
   let reminderTimeout = null;
   function scheduleReminder() {
     if (reminderTimeout) clearTimeout(reminderTimeout);
-    const time = S().settings.reminderTime; if (!time || Notification.permission !== 'granted') return;
-    const [h, m] = time.split(':').map(Number);
-    const now = new Date(); const next = new Date(); next.setHours(h, m, 0, 0);
-    if (next <= now) next.setDate(next.getDate() + 1);
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const nx = nextPlanDate(); if (!nx) return;
+    const delay = Math.min(nx.date - new Date(), 2 ** 31 - 1);
     reminderTimeout = setTimeout(() => {
       const t = Store.todayTemplate();
-      try { new Notification('Séance du jour', { body: `${t.name} · ${t.focus}`, tag: 'daily' }); } catch (e) {}
+      const body = nx.plan && nx.plan.anchor ? `${t.name} · ${nx.plan.anchor}` : `${t.name} · ${t.focus}`;
+      try { new Notification('Séance prévue', { body, tag: 'plan' }); } catch (e) {}
       scheduleReminder();
-    }, next - now);
+    }, Math.max(0, delay));
+  }
+
+  // =====================================================================
+  //  ONBOARDING express — une question par écran (levier d'adhérence 2026)
+  // =====================================================================
+  let onb = null;
+  const ONB_STEPS = 6;
+  function startOnboarding() {
+    onb = { step: 0, goal: null, experience: null, mode: 6, weight: '', planTime: '18:00',
+      increments: { ...S().settings.increments }, planDays: [] };
+    showOnboard();
+  }
+  function showOnboard() {
+    let el = document.getElementById('onboard');
+    if (!el) { el = document.createElement('div'); el.id = 'onboard'; el.className = 'onboard'; document.body.appendChild(el); }
+    el.innerHTML = onboardStep();
+  }
+  function closeOnboard() { const el = document.getElementById('onboard'); if (el) el.remove(); }
+
+  function onboardStep() {
+    const dots = Array.from({ length: ONB_STEPS }, (_, i) => `<span class="odot ${i === onb.step ? 'on' : ''} ${i < onb.step ? 'past' : ''}"></span>`).join('');
+    const nav = (nextLabel, canNext = true) => `
+      <div class="onb-nav">
+        ${onb.step > 0 ? '<button class="btn ghost" data-action="onb-back">Retour</button>' : '<button class="btn ghost" data-action="onb-skip">Passer l’intro</button>'}
+        <button class="btn primary" data-action="${onb.step === ONB_STEPS - 1 ? 'onb-finish' : 'onb-next'}" ${canNext ? '' : 'disabled'}>${nextLabel}</button>
+      </div>`;
+    const pick = (action, val, cur, label, sub) => `<button class="onb-pick ${cur === val ? 'on' : ''}" data-action="${action}" data-v="${val}"><b>${label}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
+
+    let body = '';
+    if (onb.step === 0) {
+      body = `<div class="onb-seal">⏱️</div>
+        <h2>Bienvenue dans Chronographe</h2>
+        <p class="onb-lead">Ton coach de musculation, <b>100 % sur ton téléphone</b>. Aucune donnée ne sort, même pas via un serveur. Trois questions rapides et on est prêts.</p>
+        ${nav('Commencer')}`;
+    } else if (onb.step === 1) {
+      body = `<div class="onb-eye">Ton objectif</div><h2>Où tu veux aller ?</h2>
+        <div class="onb-list">
+          ${pick('onb-goal', 'masse', onb.goal, 'Prise de masse', 'Gagner du muscle, surplus léger')}
+          ${pick('onb-goal', 'recomp', onb.goal, 'Recomposition', 'Muscle + perte de gras')}
+          ${pick('onb-goal', 'seche', onb.goal, 'Sèche', 'Perdre du gras, garder le muscle')}
+        </div>${nav('Continuer', !!onb.goal)}`;
+    } else if (onb.step === 2) {
+      body = `<div class="onb-eye">Ton expérience</div><h2>Tu t’entraînes depuis…</h2>
+        <div class="onb-list">
+          ${pick('onb-exp', 'debutant', onb.experience, 'Débutant', 'Moins d’un an')}
+          ${pick('onb-exp', 'intermediaire', onb.experience, 'Intermédiaire', '1 à 3 ans')}
+          ${pick('onb-exp', 'avance', onb.experience, 'Avancé', 'Plus de 3 ans')}
+        </div>${nav('Continuer', !!onb.experience)}`;
+    } else if (onb.step === 3) {
+      const inc = onb.increments;
+      body = `<div class="onb-eye">Ta salle</div><h2>Incréments de charge</h2>
+        <p class="onb-lead">Pour n’arrondir qu’à ce qui existe chez toi. On a mis des valeurs classiques.</p>
+        <div class="onb-fields">
+          <label class="field"><span>Haltères (kg)</span><input class="num" inputmode="decimal" data-action="onb-inc" data-k="haltère" value="${inc['haltère']}"></label>
+          <label class="field"><span>Barre + disques (kg)</span><input class="num" inputmode="decimal" data-action="onb-inc" data-k="barre" value="${inc['barre']}"></label>
+          <label class="field"><span>Machines (kg)</span><input class="num" inputmode="decimal" data-action="onb-inc" data-k="machine" value="${inc['machine']}"></label>
+        </div>${nav('Continuer')}`;
+    } else if (onb.step === 4) {
+      body = `<div class="onb-eye">Ton rythme</div><h2>Combien de jours par semaine ?</h2>
+        <div class="onb-list">
+          ${pick('onb-mode', '6', String(onb.mode), '6 jours · PPL', 'Push/Pull/Legs A-B, 1 repos')}
+          ${pick('onb-mode', '4', String(onb.mode), '4 jours · Upper/Lower', 'Plus de récupération')}
+        </div>
+        <label class="field" style="margin-top:14px"><span>Poids de corps aujourd’hui (optionnel, kg)</span><input class="num" inputmode="decimal" data-action="onb-weight" value="${onb.weight}" placeholder="ex. 78"></label>
+        ${nav('Continuer')}`;
+    } else if (onb.step === 5) {
+      body = `<div class="onb-eye">Ton plan</div><h2>Quand t’entraînes-tu ?</h2>
+        <p class="onb-lead">Accrocher la séance à un moment fixe multiplie l’adhérence. Choisis tes jours et une heure.</p>
+        <div class="onb-days">${DAY_NAMES.map((d, i) => `<button class="day-chip ${onb.planDays.includes(i) ? 'on' : ''}" data-action="onb-day" data-d="${i}">${d.slice(0, 3)}</button>`).join('')}</div>
+        <label class="field" style="margin-top:14px"><span>Heure</span><input type="time" data-action="onb-time" value="${onb.planTime}"></label>
+        <p class="onb-mini">${onb.planDays.length ? `Rappel : « ${DAY_NAMES[onb.planDays[0]]} ${onb.planTime} — ta séance t’attend. »` : 'Tu pourras activer les rappels ensuite dans les réglages.'}</p>
+        ${nav('Terminer')}`;
+    }
+    return `<div class="onb-card view"><div class="odots">${dots}</div>${body}</div>`;
+  }
+
+  async function finishOnboarding() {
+    const s = S().settings;
+    s.increments = onb.increments;
+    s.profile = { goal: onb.goal, experience: onb.experience, weight: num(onb.weight) };
+    s.plans = onb.planDays.map(d => ({ id: 'p' + d + '_' + Date.now(), day: d, time: onb.planTime, anchor: '' }));
+    s.onboarded = true;
+    await Store.saveSettings();
+    if (onb.mode !== S().settings.mode) await Store.setMode(onb.mode);
+    if (num(onb.weight)) { const entry = { id: Date.now(), date: new Date().toISOString(), weight: num(onb.weight), measures: {} }; await Store.saveBody(entry); S().body.push(entry); }
+    onb = null; closeOnboard(); go('home');
+  }
+
+  // =====================================================================
+  //  Suivi corporel — ajout d'une mesure
+  // =====================================================================
+  function openBodySheet() {
+    const last = (S().body || []).slice(-1)[0];
+    const m = (last && last.measures) || {};
+    openSheet(`<div class="grab"></div><h2>Nouvelle mesure</h2>
+      <p class="muted" style="font-size:13px;margin:4px 0 14px">Tout reste en local. Le poids suffit ; les mensurations sont optionnelles.</p>
+      <label class="field"><span>Poids de corps (kg)</span><input class="num" inputmode="decimal" id="bd-weight" value="${last && last.weight != null ? last.weight : ''}" placeholder="ex. 78.4"></label>
+      <div class="row" style="margin-top:10px">
+        <label class="field" style="flex:1"><span>Bras (cm)</span><input class="num" inputmode="decimal" id="bd-bras" value="${m.bras ?? ''}"></label>
+        <label class="field" style="flex:1"><span>Poitrine (cm)</span><input class="num" inputmode="decimal" id="bd-poitrine" value="${m.poitrine ?? ''}"></label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label class="field" style="flex:1"><span>Taille (cm)</span><input class="num" inputmode="decimal" id="bd-taille" value="${m.taille ?? ''}"></label>
+        <label class="field" style="flex:1"><span>Cuisse (cm)</span><input class="num" inputmode="decimal" id="bd-cuisse" value="${m.cuisse ?? ''}"></label>
+      </div>
+      <button class="btn primary block" style="margin-top:16px" data-action="body-save">Enregistrer la mesure</button>`);
+  }
+  async function saveBodyForm() {
+    const g = (x) => num(document.getElementById(x).value);
+    const measures = {}; for (const k of ['bras', 'poitrine', 'taille', 'cuisse']) { const v = g('bd-' + k); if (v != null) measures[k] = v; }
+    const weight = g('bd-weight');
+    if (weight == null && !Object.keys(measures).length) { closeSheet(); return; }
+    const entry = { id: Date.now(), date: new Date().toISOString(), weight, measures };
+    await Store.saveBody(entry); S().body.push(entry);
+    closeSheet(); render();
+  }
+
+  function openPlanSheet() {
+    openSheet(`<div class="grab"></div><h2>Nouveau plan « si-alors »</h2>
+      <p class="muted" style="font-size:13px;margin:4px 0 12px">« Si [jour · heure], alors ta séance. » Choisis les jours :</p>
+      <div class="onb-days" id="plan-days">${DAY_NAMES.map((d, i) => `<button class="day-chip" data-action="plan-day-toggle" data-d="${i}">${d.slice(0, 3)}</button>`).join('')}</div>
+      <label class="field" style="margin-top:12px"><span>Heure</span><input type="time" id="plan-time" value="18:00"></label>
+      <label class="field" style="margin-top:10px"><span>Ancre (optionnel)</span><input id="plan-anchor" placeholder="ex. en sortant du boulot"></label>
+      <button class="btn primary block" style="margin-top:16px" data-action="plan-create">Ajouter le plan</button>`);
   }
 
   function init() {
@@ -936,6 +1132,7 @@
     document.addEventListener('input', (e) => { const a = e.target.dataset && e.target.dataset.action; if (a === 'cardio-dur' || a === 'lib-search' || a === 'plate-target') onChange(e); });
     scheduleReminder();
     render();
+    if (!S().settings.onboarded) startOnboarding();
   }
 
   window.UI = { init };
