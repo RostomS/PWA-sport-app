@@ -81,12 +81,25 @@
     <div class="card"><div class="v" id="active">—</div><div class="k">État</div></div>
   </div>
 
+  <div class="controls" style="margin-top:12px">
+    <button class="btn volt" id="endset">Terminer la série</button>
+  </div>
+
+  <div class="field">
+    <span>Objectif de reps — <span id="tgtval">10</span></span>
+    <input type="range" id="tgt" min="1" max="20" value="10">
+  </div>
   <div class="field">
     <span>Sensibilité — <span id="sensval">50</span></span>
     <input type="range" id="sens" min="5" max="95" value="50">
   </div>
 
-  <p class="disc">⚠︎ Prototype (bêta). Compte les reps par cadence de mouvement — au mieux quand tu marques une brève pause entre chaque rep. La lecture de la trajectoire du coude viendra avec un modèle de pose.</p>
+  <div id="sets" hidden>
+    <div style="font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin:14px 0 8px">Séries de la session</div>
+    <div id="setlist"></div>
+  </div>
+
+  <p class="disc">⚠︎ Prototype (bêta). Comptage par cadence de mouvement, seuil auto-calibré sur le bruit de la caméra — au mieux avec une brève pause entre chaque rep. La lecture de la trajectoire du coude viendra avec un modèle de pose (non embarquable dans cet environnement de build).</p>
   <p class="note"><b>🔒 Confidentialité :</b> le flux caméra est analysé en direct dans ton navigateur et <b>n’est ni enregistré ni envoyé</b> nulle part. Ferme la page et il ne reste rien.</p>
 
 <script>
@@ -94,23 +107,27 @@
   const $ = id => document.getElementById(id);
   const video=$('video'), pill=$('pill'), cue=$('cue'), msg=$('msg'),
         repsEl=$('reps'), bar=$('motionbar'), tempoEl=$('tempo'), activeEl=$('active'),
-        sens=$('sens'), sensval=$('sensval'), toggle=$('toggle'), resetBtn=$('reset');
+        sens=$('sens'), sensval=$('sensval'), toggle=$('toggle'), resetBtn=$('reset'),
+        tgt=$('tgt'), tgtval=$('tgtval'), endset=$('endset'), setsBox=$('sets'), setlist=$('setlist');
 
   let stream=null, running=false, raf=null;
   const proc=document.createElement('canvas'); proc.width=96; proc.height=128;
   const pctx=proc.getContext('2d',{willReadFrequently:true});
-  let prev=null, ema=0, reps=0, phase='still', lastRepAt=0, phaseStart=0, lastTempo=0;
+  let prev=null, ema=0, floor=0, reps=0, tempoSum=0, phase='still',
+      lastRepAt=0, phaseStart=0, calibUntil=0, doneSets=[];
 
-  function showMsg(t){ msg.hidden=false; msg.textContent=t; }
-  function hideMsg(){ msg.hidden=true; }
+  const showMsg=t=>{ msg.hidden=false; msg.textContent=t; };
+  const hideMsg=()=>{ msg.hidden=true; };
+  const setTempo=v=>{ tempoEl.innerHTML=v.toFixed(1)+'<span style="font-size:11px;color:var(--mut)">s</span>'; };
 
   async function start(){
     try{
       stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:640}},audio:false});
       video.srcObject=stream; await video.play();
-      running=true; hideMsg(); pill.textContent='en cours'; pill.classList.add('live');
-      cue.textContent='Cadre ton buste dans le repère et fais tes reps.';
-      toggle.textContent='Pause'; prev=null; loop();
+      running=true; hideMsg(); pill.textContent='calibration…'; pill.classList.add('live');
+      cue.textContent='Reste immobile un instant, je calibre le bruit de la caméra…';
+      toggle.textContent='Pause'; prev=null; floor=0; ema=0; calibUntil=performance.now()+1300;
+      loop();
     }catch(e){
       showMsg('Caméra indisponible ou refusée. Autorise l’accès caméra dans ton navigateur, puis réessaie. ('+(e && e.name || e)+')');
     }
@@ -119,7 +136,15 @@
     running=false; if(raf) cancelAnimationFrame(raf);
     if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
     pill.textContent='en pause'; pill.classList.remove('live'); toggle.textContent='Reprendre';
-    activeEl.textContent='—'; bar.style.width='0%';
+    activeEl.textContent='—'; bar.style.width='0%'; phase='still';
+  }
+
+  function addRep(now){
+    reps++; const tmp=(now-phaseStart)/1000; tempoSum+=tmp;
+    repsEl.textContent=reps; setTempo(tmp); pill.textContent=reps+' reps';
+    const target=+tgt.value;
+    if(reps===target){ if(navigator.vibrate) navigator.vibrate([60,40,120]); pill.textContent='objectif ✓'; document.getElementById('stage').style.outline='3px solid var(--volt)'; setTimeout(()=>document.getElementById('stage').style.outline='',500); }
+    else if(navigator.vibrate) navigator.vibrate(20);
   }
 
   function loop(){
@@ -128,9 +153,8 @@
     if(video.readyState<2) return;
     pctx.drawImage(video,0,0,proc.width,proc.height);
     const img=pctx.getImageData(0,0,proc.width,proc.height).data;
-    // ROI centrale (64% central) en niveaux de gris
-    let sum=0, count=0;
     const x0=proc.width*0.18|0, x1=proc.width*0.82|0, y0=proc.height*0.14|0, y1=proc.height*0.78|0;
+    let sum=0, count=0;
     const gray=new Float32Array(proc.width*proc.height);
     for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){
       const i=(y*proc.width+x)*4;
@@ -139,35 +163,48 @@
       if(prev){ sum+=Math.abs(g-prev[y*proc.width+x]); count++; }
     }
     prev=gray;
-    if(!count){ return; }
-    const motion=sum/count/255; // 0..~1
+    if(!count) return;
+    const motion=sum/count/255;
     ema=ema*0.6+motion*0.4;
-    const level=Math.min(1,ema*6);
-    bar.style.width=(level*100).toFixed(0)+'%';
 
-    // seuils dérivés de la sensibilité
-    const s=+sens.value/100;                 // 0.05..0.95
-    const hi=0.10*(1-s)+0.015;               // sensible => seuil bas
-    const lo=hi*0.5;
+    // Plancher de bruit adaptatif : descend vite, remonte lentement.
+    if(floor===0) floor=ema;
+    floor = ema<floor ? ema : floor + (ema-floor)*0.01;
+
     const now=performance.now();
+    if(now<calibUntil){ activeEl.textContent='calibration'; bar.style.width='0%'; return; }
+    if(pill.textContent==='calibration…'){ pill.textContent=reps+' reps'; cue.textContent='Cadre ton buste dans le repère et fais tes reps.'; }
+
+    // Marge au-dessus du plancher, pilotée par la sensibilité (sensible => marge faible).
+    const s=+sens.value/100;
+    const margin=0.018*(1.25-s)+0.004;
+    const hi=floor+margin, lo=floor+margin*0.4;
+    bar.style.width=(Math.min(1,(ema-floor)/(margin*2))*100).toFixed(0)+'%';
 
     if(phase==='still' && ema>hi){
       phase='moving'; phaseStart=now; activeEl.textContent='mouvement';
     } else if(phase==='moving' && ema<lo){
       phase='still'; activeEl.textContent='repos';
-      // une rep = une salve de mouvement, si assez espacée (anti-rebond 350ms)
-      if(now-lastRepAt>350){
-        reps++; lastTempo=(now-phaseStart)/1000; lastRepAt=now;
-        repsEl.textContent=reps; tempoEl.innerHTML=lastTempo.toFixed(1)+'<span style="font-size:11px;color:var(--mut)">s</span>';
-        if(navigator.vibrate) navigator.vibrate(20);
-        pill.textContent=reps+' reps';
-      }
+      // rep valide : salve d'au moins 120 ms, espacée d'au moins 300 ms de la précédente.
+      if(now-phaseStart>120 && now-lastRepAt>300){ lastRepAt=now; addRep(now); }
     }
   }
 
+  function endSet(){
+    if(reps>0){
+      const avg=reps?tempoSum/reps:0;
+      doneSets.push({reps,avg});
+      setsBox.hidden=false;
+      setlist.innerHTML=doneSets.map((s,i)=>`<div class="card" style="text-align:left;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-weight:800">Série ${i+1}</span><span class="v" style="font-size:16px">${s.reps} reps</span><span class="k" style="margin:0">tempo ${s.avg.toFixed(1)}s</span></div>`).join('');
+    }
+    reps=0; tempoSum=0; phase='still'; repsEl.textContent='0'; setTempo(0); pill.textContent=running?'0 reps':'prêt';
+  }
+
   toggle.addEventListener('click',()=>{ running?stop():start(); });
-  resetBtn.addEventListener('click',()=>{ reps=0; repsEl.textContent='0'; tempoEl.innerHTML='0.0<span style="font-size:11px;color:var(--mut)">s</span>'; pill.textContent=running?'en cours':'prêt'; });
+  resetBtn.addEventListener('click',()=>{ reps=0; tempoSum=0; repsEl.textContent='0'; setTempo(0); pill.textContent=running?'0 reps':'prêt'; });
+  endset.addEventListener('click',endSet);
   sens.addEventListener('input',()=>{ sensval.textContent=sens.value; });
+  tgt.addEventListener('input',()=>{ tgtval.textContent=tgt.value; });
   window.addEventListener('pagehide',stop);
 
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
