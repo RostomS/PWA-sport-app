@@ -149,7 +149,47 @@ const PROGRAM_4 = [
     ['rdl',4],['hipThrust',3],['lyingLegCurl',3],['bulgarianSplit',3],['seatedCalf',3] ] },
 ];
 
+/* Full Body 3 jours — tout le corps à chaque séance, mais 3 séances VARIÉES
+   (patterns et exercices différents chaque jour). Idéal fréquence basse / peu de temps. */
+const FULLBODY_3 = [
+  { id:'fb_a', name:'Full Body A', code:'FULL', focus:'Squat · poussée/tirage horizontal', blocks:[
+    ['gobletSquat',3],['flatDbPress',3],['dbRow',3],['lyingLegCurl',2],['lateralRaiseDb',2],['dbCurlSupine',2] ] },
+  { id:'fb_b', name:'Full Body B', code:'FULL', focus:'Hinge · poussée/tirage vertical', blocks:[
+    ['rdl',3],['dbShoulderPress',3],['latPulldownWide',3],['legPress',3],['triPushdownRope',2],['hammerCurl',2] ] },
+  { id:'fb_c', name:'Full Body C', code:'FULL', focus:'Fessiers · pecs haut · dos milieu', blocks:[
+    ['hipThrust',3],['inclineDbPress',3],['seatedCableRow',3],['hackSquat',3],['cableLateralRaise',2],['cableCurl',2],['standingCalf',2] ] },
+];
+
+/* Arnold Split 6 jours — Pecs+Dos / Épaules+Bras / Jambes, en A puis B (chaque jour diffère). */
+const ARNOLD_6 = [
+  { id:'arn_cb_a', name:'Pecs + Dos A', code:'HAUT', focus:'Pecs · dos largeur', blocks:[
+    ['inclineDbPress',4],['latPulldownWide',4],['flatDbPress',3],['dbRow',3],['cableFly',3],['facePull',2] ] },
+  { id:'arn_sa_a', name:'Épaules + Bras A', code:'BRAS', focus:'Deltoïdes · biceps · triceps', blocks:[
+    ['dbShoulderPress',4],['lateralRaiseDb',3],['dbCurlSupine',3],['triPushdownRope',3],['hammerCurl',2],['triOverheadDb',2] ] },
+  { id:'arn_l_a', name:'Jambes A', code:'LEGS', focus:'Quadriceps', blocks:[
+    ['gobletSquat',4],['legPress',3],['walkingLunge',3],['lyingLegCurl',3],['standingCalf',3] ] },
+  { id:'arn_cb_b', name:'Pecs + Dos B', code:'HAUT', focus:'Pecs · dos épaisseur', blocks:[
+    ['machineBenchPress',4],['barbellRow',4],['inclineMachinePress',3],['seatedCableRow',3],['cableCrossover',3],['facePull',2] ] },
+  { id:'arn_sa_b', name:'Épaules + Bras B', code:'BRAS', focus:'Deltoïdes · bras (variation)', blocks:[
+    ['machineShoulderPress',4],['cableLateralRaise',3],['inclineDbCurl',3],['dipsOrPushdown',3],['cableCurl',2],['triUnilateralCable',2] ] },
+  { id:'arn_l_b', name:'Jambes B', code:'LEGS', focus:'Ischios · fessiers', blocks:[
+    ['rdl',4],['hipThrust',3],['bulgarianSplit',3],['seatedLegCurl',3],['seatedCalf',3] ] },
+];
+
+/* Bibliothèque de programmes. Chaque entrée expose ses séances (déjà VARIÉES d'un jour
+   à l'autre). `special` marque les deux programmes historiques liés (fusion PPL↔U/L). */
+const PROGRAMS = [
+  { id:'ppl6', name:'PPL 6 jours', days:'6 jours · 1 repos', special:'ppl',
+    desc:'Push / Pull / Legs en A-B. La référence hypertrophie, 6 séances toutes différentes.', sessions: PROGRAM_6 },
+  { id:'ul4', name:'Upper / Lower 4 jours', days:'4 jours', special:'ul',
+    desc:'Haut / Bas, plus de récupération. Fusion du PPL avec 1-2 isolations en moins.', sessions: PROGRAM_4 },
+  { id:'fb3', name:'Full Body 3 jours', days:'3 jours',
+    desc:'Tout le corps à chaque séance, 3 séances variées. Parfait quand le temps manque.', sessions: FULLBODY_3 },
+  { id:'arnold6', name:'Arnold Split 6 jours', days:'6 jours · 1 repos',
+    desc:'Pecs+Dos / Épaules+Bras / Jambes, en A-B. Beaucoup de volume, 6 jours variés.', sessions: ARNOLD_6 },
+];
+
 const MUSCLE_GROUPS = ['Pectoraux','Dos','Épaules','Triceps','Biceps','Quadriceps','Ischios','Fessiers','Mollets'];
 
 // Expose global (scripts classiques, pas de bundler — robuste sur Safari installé).
-window.DATA = { BASE_EXERCISES, PROGRAM_6, PROGRAM_4, MUSCLE_GROUPS };
+window.DATA = { BASE_EXERCISES, PROGRAM_6, PROGRAM_4, FULLBODY_3, ARNOLD_6, PROGRAMS, MUSCLE_GROUPS };

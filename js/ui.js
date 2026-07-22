@@ -499,12 +499,11 @@
     <h1 style="font-size:26px;margin-bottom:14px">Réglages</h1>
 
     <div class="card pad stack">
-      <div class="eyebrow">Rythme d’entraînement</div>
-      <div class="row">
-        <button class="btn block ${s.mode === 6 ? 'primary' : ''}" data-action="mode" data-mode="6">6 jours · PPL</button>
-        <button class="btn block ${s.mode === 4 ? 'primary' : ''}" data-action="mode" data-mode="4">4 jours · Upper/Lower</button>
-      </div>
-      <p class="muted" style="font-size:12px;margin:0">Bascule libre à tout moment. En 4 jours, Push+Pull fusionnent (1–2 isolations retirées) ; le retour au 6 jours les réintègre. L’historique reste continu dans les deux sens.</p>
+      <div class="eyebrow">Bibliothèque de programmes</div>
+      ${DATA.PROGRAMS.map(pr => { const active = s.programId === pr.id; return `<button class="prog-pick ${active ? 'on' : ''}" data-action="set-program" data-id="${pr.id}">
+        <div class="between"><b>${esc(pr.name)}</b>${active ? '<span class="chip ok" style="font-size:10px">Actif</span>' : `<span class="badge-eq">${esc(pr.days)}</span>`}</div>
+        <div class="ex-meta" style="margin-top:4px">${esc(pr.desc)}</div></button>`; }).join('')}
+      <p class="muted" style="font-size:12px;margin:0">Change à tout moment : l’historique reste continu et la rotation repart proprement sur le nouveau programme. Le repli fatigue bascule PPL ↔ Upper/Lower.</p>
     </div>
 
     <div class="card pad stack" style="margin-top:14px">
@@ -575,7 +574,7 @@
     const order = Store.currentOrder();
     if (!progEdit) {
       return `<div class="between" style="margin-bottom:12px"><h1 style="font-size:24px">Mon programme</h1><button class="btn ghost sm" data-nav="more">Retour</button></div>
-      <p class="muted" style="font-size:13px;margin:0 0 14px">Mode ${S().settings.mode} jours. Touche une séance pour ajuster ses exercices et séries.</p>
+      <p class="muted" style="font-size:13px;margin:0 0 14px">Programme : ${esc(Store.activeProgram().name)}. Touche une séance pour ajuster ses exercices et séries.</p>
       <div class="card">${order.map(t => `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:15px">${esc(t.name)}</div><div class="ex-meta">${t.blocks.length} exercices · ${esc(t.focus)}</div></div><button class="btn ghost sm" data-action="edit-template" data-id="${t.id}">Éditer</button></div>`).join('')}</div>`;
     }
     const t = Store.templateById(progEdit);
@@ -788,7 +787,7 @@
     const data = {
       _app: 'chronographe', _version: 1, exportedAt: new Date().toISOString(),
       exercises: S().exercises, sessions: S().sessions, settings: S().settings,
-      program6: S().program[6], program4: S().program[4], body: S().body || [],
+      programs: S().programs, body: S().body || [],
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -808,7 +807,9 @@
           for (const s of d.sessions) await Store.saveSession(s);
           for (const bx of (d.body || [])) await Store.saveBody(bx);
           S().settings = d.settings; await Store.saveSettings();
-          S().program[6] = d.program6; S().program[4] = d.program4; await Store.saveProgram();
+          if (d.programs) S().programs = d.programs;
+          else { S().programs = S().programs || {}; if (d.program6) S().programs['ppl6'] = d.program6; if (d.program4) S().programs['ul4'] = d.program4; }
+          await Store.saveProgram();
           location.reload();
         } catch (err) { alert('Fichier invalide — ce n’est pas une sauvegarde Chronographe.'); }
       };
@@ -953,8 +954,8 @@
       case 'sub-perm': {
         const b = +el.dataset.b; const from = d.blocks[b].exId; const to = el.dataset.id;
         d.blocks[b].substitutedFrom = from; d.blocks[b].exId = to;
-        // propage aux prochaines occurrences dans le template du programme courant
-        const t = S().program[S().settings.mode].find(x => x.id === d.templateId);
+        // propage aux prochaines occurrences dans le template du programme actif
+        const t = Store.currentOrder().find(x => x.id === d.templateId);
         if (t) { const blk = t.blocks.find(x => x.exId === from); if (blk) blk.exId = to; await Store.saveProgram(); }
         await Store.saveDraft(); closeSheet(); render(); break;
       }
@@ -992,6 +993,7 @@
 
       // ---- mode / réglages ----
       case 'mode': await Store.setMode(+el.dataset.mode); render(); break;
+      case 'set-program': await Store.setProgram(el.dataset.id); render(); break;
       case 'enable-reminder': await enableReminder(); break;
       case 'export': await doExport(); break;
       case 'import': doImport(); break;

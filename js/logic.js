@@ -160,7 +160,7 @@
 
   // ---------- 7. Check-in fatigue → proposer 4 jours ----------
   function fatigueSuggests4Day() {
-    if (S().settings.mode === 4) return false;
+    if (S().settings.programId !== 'ppl6') return false; // repli spécifique PPL → Upper/Lower
     const withCk = S().sessions.filter(s => s.checkin);
     const last2 = withCk.slice(-2);
     if (last2.length < 2) return false;
