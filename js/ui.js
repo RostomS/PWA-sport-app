@@ -117,6 +117,7 @@
         <div><div class="eyebrow">Séance en cours</div><h1 style="font-size:26px">${esc(d.name)}</h1></div>
         <button class="btn ghost sm" data-action="abort">Quitter</button>
       </div>
+      ${d.note ? `<details class="why"><summary>Pourquoi cet ordre ?</summary><p>${esc(d.note)}</p><p class="why-rule">Règle générale : le compound le plus lourd en premier (tu es frais → plus de charge et plus de sécurité). L’ordre pèse surtout sur la force ; pour le muscle, c’est le volume près de l’échec qui compte — alors donne tout sur chaque série.</p></details>` : ''}
       ${d.dropped && d.dropped.length ? `<div class="banner info" style="margin-bottom:14px"><div><div class="ttl">Séance recomposée · ${d.timeBudget} min</div><div class="body">J’ai gardé les compounds prioritaires et coupé : ${esc(d.dropped.join(', '))}.</div></div></div>` : ''}
       <ol class="ex-list">${cards}</ol>
       ${finisherCard(d)}
@@ -219,7 +220,7 @@
         <rect x="28" y="26" width="9" height="9" rx="3" fill="${f('Épaules')}"/><rect x="53" y="26" width="9" height="9" rx="3" fill="${f('Épaules')}"/>
         <rect x="35" y="27" width="20" height="13" rx="4" fill="${f('Pectoraux')}"/>
         <rect x="26" y="35" width="7" height="16" rx="3" fill="${f('Biceps')}"/><rect x="57" y="35" width="7" height="16" rx="3" fill="${f('Biceps')}"/>
-        <rect x="37" y="41" width="16" height="16" rx="3" fill="${N}"/>
+        <rect x="37" y="41" width="16" height="16" rx="3" fill="${f('Abdos')}"/>
         <rect x="36" y="59" width="8" height="28" rx="4" fill="${f('Quadriceps')}"/><rect x="46" y="59" width="8" height="28" rx="4" fill="${f('Quadriceps')}"/>
         <rect x="37" y="89" width="7" height="20" rx="3" fill="${f('Mollets')}"/><rect x="46" y="89" width="7" height="20" rx="3" fill="${f('Mollets')}"/>
         <text x="45" y="128" text-anchor="middle" class="bm-lab">Face</text>
@@ -446,6 +447,24 @@
       <div class="card">${ser.slice().reverse().map(p => `<div class="lib-item"><div style="flex:1"><div class="ex-title num" style="font-size:13px">${p.top.weight} kg × ${p.top.reps}</div><div class="ex-meta">1RM est. ${p.value.toFixed(1)} kg · volume ${p.volume}</div></div><div class="muted num" style="font-size:11px">${fmtDate(p.date)}</div></div>`).join('')}</div>`);
   }
 
+  function openProgramDetail(id) {
+    const pr = DATA.PROGRAMS.find(p => p.id === id); if (!pr) return;
+    const sessions = S().programs[id] || [];
+    // Couverture musculaire hebdomadaire (prouve que tous les muscles sont sollicités).
+    const cov = {}; DATA.MUSCLE_GROUPS.forEach(m => cov[m] = 0);
+    for (const t of sessions) for (const b of t.blocks) { const ex = S().ex(b.exId); if (ex && cov[ex.musclePrimary] != null) cov[ex.musclePrimary] += b.sets; }
+    const covChips = DATA.MUSCLE_GROUPS.map(m => `<span class="chip ${cov[m] >= 8 ? 'ok' : cov[m] >= 4 ? '' : 'ghost'}" style="font-size:10.5px">${esc(m)} ${cov[m]}</span>`).join(' ');
+    const active = S().settings.programId === id;
+    openSheet(`<div class="grab"></div>
+      <div class="eyebrow">${esc(pr.mode)}</div>
+      <h2 style="font-size:22px;margin:2px 0 6px">${esc(pr.name)} · ${esc(pr.days)}</h2>
+      <p class="muted" style="font-size:13px;margin:0 0 12px">${esc(pr.rationale)}</p>
+      <div class="card pad" style="margin-bottom:12px"><div class="eyebrow" style="margin-bottom:8px">Volume hebdo par muscle (séries)</div><div style="display:flex;gap:6px;flex-wrap:wrap">${covChips}</div><p class="muted" style="font-size:11px;margin:10px 0 0">Tous les groupes sont couverts sur la semaine, y compris mollets et abdos.</p></div>
+      <div class="eyebrow" style="margin:4px 0 8px">Les séances &amp; leur logique</div>
+      ${sessions.map(t => `<div class="card pad" style="margin-bottom:8px"><div class="between"><b style="font-size:14px">${esc(t.name)}</b><span class="num muted" style="font-size:11px">~${Logic.estimateMinutes(t.blocks)} min</span></div><div class="ex-meta" style="margin-top:2px">${esc(t.focus)}</div>${t.note ? `<div class="ex-meta" style="margin-top:6px;color:var(--ink-2)">${esc(t.note)}</div>` : ''}</div>`).join('')}
+      ${active ? '<div class="chip ok" style="margin-top:8px">Programme actif</div>' : `<button class="btn primary block" style="margin-top:12px" data-action="set-program" data-id="${id}">Choisir ce programme</button>`}`);
+  }
+
   // 1RM (Epley) + table de chargement en %
   function ormTable(w, reps, eq) {
     const oneRM = Logic.e1rm(num(w), num(reps));
@@ -500,9 +519,14 @@
 
     <div class="card pad stack">
       <div class="eyebrow">Bibliothèque de programmes</div>
-      ${DATA.PROGRAMS.map(pr => { const active = s.programId === pr.id; return `<button class="prog-pick ${active ? 'on' : ''}" data-action="set-program" data-id="${pr.id}">
-        <div class="between"><b>${esc(pr.name)}</b>${active ? '<span class="chip ok" style="font-size:10px">Actif</span>' : `<span class="badge-eq">${esc(pr.days)}</span>`}</div>
-        <div class="ex-meta" style="margin-top:4px">${esc(pr.desc)}</div></button>`; }).join('')}
+      ${DATA.PROGRAMS.map(pr => { const active = s.programId === pr.id; return `<div class="prog-pick ${active ? 'on' : ''}">
+        <button data-action="set-program" data-id="${pr.id}" style="all:unset;cursor:pointer;display:block">
+          <div class="between"><b>${esc(pr.name)}</b>${active ? '<span class="chip ok" style="font-size:10px">Actif</span>' : `<span class="badge-eq">${esc(pr.days)}</span>`}</div>
+          <div class="ex-meta" style="margin-top:3px">${esc(pr.mode)}</div>
+          <div class="ex-meta" style="margin-top:4px">${esc(pr.desc)}</div>
+        </button>
+        <button class="btn ghost sm" style="margin-top:10px" data-action="prog-detail" data-id="${pr.id}">Voir le programme &amp; le pourquoi</button>
+      </div>`; }).join('')}
       <p class="muted" style="font-size:12px;margin:0">Change à tout moment : l’historique reste continu et la rotation repart proprement sur le nouveau programme. Le repli fatigue bascule PPL ↔ Upper/Lower.</p>
     </div>
 
@@ -678,7 +702,7 @@
       return { exId: b.exId, sets, substitutedFrom: null, superset: false };
     });
     return {
-      templateId: template.id, name: template.name, code: template.code, focus: template.focus,
+      templateId: template.id, name: template.name, code: template.code, focus: template.focus, note: template.note || '',
       startedAt: new Date().toISOString(), timeBudget: budget || 60, dropped,
       blocks: draftBlocks,
       cardio: { ...S().settings.cardioDefault, enabled: true, done: false },
@@ -993,7 +1017,8 @@
 
       // ---- mode / réglages ----
       case 'mode': await Store.setMode(+el.dataset.mode); render(); break;
-      case 'set-program': await Store.setProgram(el.dataset.id); render(); break;
+      case 'set-program': await Store.setProgram(el.dataset.id); closeSheet(); render(); break;
+      case 'prog-detail': openProgramDetail(el.dataset.id); break;
       case 'enable-reminder': await enableReminder(); break;
       case 'export': await doExport(); break;
       case 'import': doImport(); break;

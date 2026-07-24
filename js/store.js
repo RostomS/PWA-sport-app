@@ -4,6 +4,7 @@
 (function () {
   const DB_NAME = 'chrono-musculation';
   const DB_VERSION = 2;
+  const PROGRAMS_VERSION = 2; // ↑ à incrémenter quand le contenu des programmes intégrés change
 
   function openDB() {
     return new Promise((resolve, reject) => {
@@ -63,7 +64,7 @@
   // Clone des templates de programme (blocks -> objets {exId,sets}) pour édition persistante.
   function seedProgram(src) {
     return src.map(t => ({
-      id: t.id, name: t.name, code: t.code, focus: t.focus,
+      id: t.id, name: t.name, code: t.code, focus: t.focus, note: t.note || '',
       droppedFromSixDay: t.droppedFromSixDay || null,
       blocks: t.blocks.map(([exId, sets]) => ({ exId, sets })),
     }));
@@ -99,18 +100,17 @@
     // Migration mode → programId pour les installations antérieures à la bibliothèque.
     if (!s.programId) State.settings.programId = State.settings.mode === 4 ? 'ul4' : 'ppl6';
 
-    // Bibliothèque de programmes (éditable, persistée). Récupère les éditions de l'ancien schéma.
+    // Bibliothèque de programmes (éditable, persistée), versionnée pour recevoir les
+    // mises à jour de contenu des programmes intégrés (nouveaux programmes, notes, exos).
     let progs = (await getMeta('programs'))?.value;
-    if (!progs) {
-      progs = {};
-      for (const pr of DATA.PROGRAMS) progs[pr.id] = seedProgram(pr.sessions);
-      const oldP6 = (await getMeta('program6'))?.value; if (oldP6) progs['ppl6'] = oldP6;
-      const oldP4 = (await getMeta('program4'))?.value; if (oldP4) progs['ul4'] = oldP4;
+    const pv = (await getMeta('programsVersion'))?.value || 0;
+    if (!progs || pv < PROGRAMS_VERSION) {
+      progs = progs || {};
+      if (!progs['ppl6']) { const o = (await getMeta('program6'))?.value; if (o) progs['ppl6'] = o; }
+      if (!progs['ul4']) { const o = (await getMeta('program4'))?.value; if (o) progs['ul4'] = o; }
+      for (const pr of DATA.PROGRAMS) progs[pr.id] = seedProgram(pr.sessions); // (re)seed intégrés à jour
       await putMeta('programs', progs);
-    } else {
-      let changed = false; // ajoute les programmes livrés après coup
-      for (const pr of DATA.PROGRAMS) if (!progs[pr.id]) { progs[pr.id] = seedProgram(pr.sessions); changed = true; }
-      if (changed) await putMeta('programs', progs);
+      await putMeta('programsVersion', PROGRAMS_VERSION);
     }
     State.programs = progs;
 
