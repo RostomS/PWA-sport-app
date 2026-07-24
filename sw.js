@@ -1,7 +1,7 @@
 /* sw.js — Service worker : cache l'app shell pour un fonctionnement 100% hors-ligne.
    Stratégie : cache-first pour les assets de l'app, réseau en secours. Les données
    utilisateur vivent dans IndexedDB (jamais dans le cache), donc rien à synchroniser. */
-const CACHE = 'chrono-v9';
+const CACHE = 'chrono-v10';
 const ASSETS = [
   './',
   './index.html',
@@ -17,6 +17,8 @@ const ASSETS = [
   './icons/icon-512.png',
   './icons/icon-180.png',
 ];
+
+self.addEventListener('message', (e) => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

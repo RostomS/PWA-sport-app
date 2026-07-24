@@ -158,6 +158,7 @@
           <div class="between"><div class="ex-title">${esc(ex.name)}</div>${ex.elbowUnsafe ? '<span class="avoid-flag">à éviter</span>' : ''}</div>
           <div class="ex-meta">${esc(ex.musclePrimary)} · ${esc(ex.equipment)}${b.substitutedFrom ? ' · remplacé' : ''}${b.superset ? ' · superset' : ''}</div>
           <div class="ex-target num">Cible ${target}</div>
+          ${b.note ? `<div class="ex-note-line">📝 ${esc(b.note)}</div>` : ''}
         </div>
       </div>
       <div class="set-row"><span class="colhead">série</span><span class="colhead">kg</span><span class="colhead">reps</span><span class="colhead">rir</span><span></span></div>
@@ -172,6 +173,7 @@
         <button class="btn sm ghost" data-action="del-set" data-b="${i}">− série</button>
         ${ex.equipment === 'barre' ? `<button class="btn sm ghost" data-action="plates" data-b="${i}">Plaques</button>` : ''}
         <button class="btn sm ghost" data-action="superset" data-b="${i}">Superset</button>
+        <button class="btn sm ghost" data-action="ex-note" data-b="${i}">📝 Note${b.note ? ' •' : ''}</button>
         <button class="btn sm steel" data-action="substitute" data-b="${i}">Machine prise</button>
       </div>
     </li>`;
@@ -468,7 +470,7 @@
     const rows = s.entries.map(e => {
       const work = e.sets.filter(x => x.done && x.type !== 'warm');
       const best = work.reduce((a, x) => (x.weight || 0) * (x.reps || 0) > (a.weight || 0) * (a.reps || 0) ? x : a, work[0] || {});
-      return `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:13px">${esc(e.resolvedName || (S().ex(e.exId) || {}).name || e.exId)}</div><div class="ex-meta">${work.length} série${work.length > 1 ? 's' : ''}${best && best.weight != null ? ` · top ${best.weight} kg × ${best.reps}` : ''}</div></div>${(e.prs || []).length ? '<span class="chip pr">PR</span>' : ''}</div>`;
+      return `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:13px">${esc(e.resolvedName || (S().ex(e.exId) || {}).name || e.exId)}</div><div class="ex-meta">${work.length} série${work.length > 1 ? 's' : ''}${best && best.weight != null ? ` · top ${best.weight} kg × ${best.reps}` : ''}</div>${e.note ? `<div class="ex-note-line">📝 ${esc(e.note)}</div>` : ''}</div>${(e.prs || []).length ? '<span class="chip pr">PR</span>' : ''}</div>`;
     }).join('');
     openSheet(`<div class="grab"></div>
       <div class="eyebrow">${d.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long' })}</div>
@@ -635,6 +637,13 @@
       <div class="empty" style="padding:12px"><div class="big">Bientôt disponible</div>Le suivi des repas arrivera dans une prochaine version.</div>
     </div>
 
+    <div class="card pad stack" style="margin-top:14px">
+      <div class="eyebrow">Version & mises à jour</div>
+      <div class="between"><span class="num" style="font-weight:700">Version ${window.APP_VERSION || '—'}</span>
+        <button class="btn ghost sm" data-action="check-updates">Vérifier les mises à jour</button></div>
+      <p class="muted" style="font-size:12px;margin:0">L’app se met à jour toute seule à la réouverture. Ce bouton force la vérification. Tes données restent intactes.</p>
+    </div>
+
     <button class="btn danger block" style="margin-top:18px" data-action="reset">Réinitialiser l’application</button>
     <p class="muted" style="font-size:11px;text-align:center;margin-top:18px">Chronographe · 100% local · aucune donnée ne quitte ton téléphone.</p>`;
   }
@@ -748,7 +757,7 @@
       const last = Logic.lastOccurrence(b.exId);
       const guessW = prog && prog.type === 'load' ? prog.to : (prog && prog.weight) || (last ? Math.max(...last.entry.sets.map(s => s.weight || 0)) : null);
       const sets = Array.from({ length: b.sets }, () => ({ weight: guessW ?? '', reps: '', rir: 2, done: false, type: 'normal' }));
-      return { exId: b.exId, sets, substitutedFrom: null, superset: false };
+      return { exId: b.exId, sets, substitutedFrom: null, superset: false, note: '' };
     });
     return {
       templateId: template.id, name: template.name, code: template.code, focus: template.focus, note: template.note || '',
@@ -767,7 +776,7 @@
         const sets = b.sets.map(s => ({ weight: num(s.weight), reps: num(s.reps), rir: num(s.rir), done: !!s.done, type: s.type || 'normal' }));
         if (!sets.some(s => s.done)) return null;
         const prs = Logic.prForEntry(b.exId, sets, d.startedAt);
-        return { exId: b.exId, resolvedName: ex ? ex.name : b.exId, musclePrimary: ex ? ex.musclePrimary : '', role: ex ? ex.role : 'isolation', substitutedFrom: b.substitutedFrom, sets, prs };
+        return { exId: b.exId, resolvedName: ex ? ex.name : b.exId, musclePrimary: ex ? ex.musclePrimary : '', role: ex ? ex.role : 'isolation', substitutedFrom: b.substitutedFrom, sets, prs, note: b.note || '' };
       })
       .filter(Boolean);
 
@@ -950,6 +959,15 @@
       case 'add-set': { const b = +el.dataset.b; const last = d.blocks[b].sets[d.blocks[b].sets.length - 1]; d.blocks[b].sets.push({ weight: last ? last.weight : '', reps: '', rir: last ? last.rir : 2, done: false }); await Store.saveDraft(); render(); break; }
       case 'del-set': { const b = +el.dataset.b; if (d.blocks[b].sets.length > 1) d.blocks[b].sets.pop(); await Store.saveDraft(); render(); break; }
       case 'superset': { const b = +el.dataset.b; d.blocks[b].superset = !d.blocks[b].superset; await Store.saveDraft(); render(); break; }
+      case 'ex-note': {
+        const b = +el.dataset.b; const ex = S().ex(d.blocks[b].exId);
+        openSheet(`<div class="grab"></div><h2>Note · ${esc(ex.name)}</h2>
+          <p class="muted" style="font-size:13px;margin:4px 0 12px">Ressenti, réglage de la machine, douleur, rappel technique…</p>
+          <textarea id="exnote" rows="4">${esc(d.blocks[b].note || '')}</textarea>
+          <button class="btn primary block" style="margin-top:12px" data-action="ex-note-save" data-b="${b}">Enregistrer la note</button>`);
+        break;
+      }
+      case 'ex-note-save': { const b = +el.dataset.b; d.blocks[b].note = document.getElementById('exnote').value.trim(); await Store.saveDraft(); closeSheet(); render(); break; }
 
       // ---- types de séries ----
       case 'cycle-type': {
@@ -1074,6 +1092,7 @@
       case 'enable-reminder': await enableReminder(); break;
       case 'export': await doExport(); break;
       case 'import': doImport(); break;
+      case 'check-updates': await checkUpdates(); break;
       case 'reset': openSheet('<div class="grab"></div><h2>Réinitialiser ?</h2><p class="muted" style="font-size:13px;margin:6px 0 16px">Tout l’historique, le programme et les réglages seront effacés. Pense à exporter avant.</p><button class="btn block" data-action="close-sheet">Annuler</button><button class="btn danger block" style="margin-top:8px" data-action="reset-confirm">Tout effacer</button>'); break;
       case 'reset-confirm': { indexedDB.deleteDatabase('chrono-musculation'); location.reload(); break; }
 
@@ -1142,6 +1161,20 @@
     await Store.saveExercise(ex);
     if (!existing) S().exercises.push(ex);
     closeSheet(); render();
+  }
+
+  // ---- mises à jour ----
+  async function checkUpdates() {
+    if (!('serviceWorker' in navigator)) { location.reload(); return; }
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.update();
+        if (reg.waiting) reg.waiting.postMessage('SKIP_WAITING'); // active tout de suite → recharge auto
+      }
+      // si une mise à jour existe, controllerchange recharge la page ; sinon on rassure.
+      setTimeout(() => { if (!window.__reloading) alert('Tu es déjà à jour ✓ · version ' + (window.APP_VERSION || '')); }, 2500);
+    } catch (e) { location.reload(); }
   }
 
   // ---- notifications ----
