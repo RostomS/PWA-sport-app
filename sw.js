@@ -1,7 +1,9 @@
-/* sw.js — Service worker : cache l'app shell pour un fonctionnement 100% hors-ligne.
-   Stratégie : cache-first pour les assets de l'app, réseau en secours. Les données
-   utilisateur vivent dans IndexedDB (jamais dans le cache), donc rien à synchroniser. */
-const CACHE = 'chrono-v10';
+/* sw.js — Service worker offline.
+   Stratégie : NETWORK-FIRST pour le code de l'app (HTML/JS/CSS/JSON) → toujours la
+   dernière version quand en ligne, cache en secours hors-ligne. CACHE-FIRST pour les
+   icônes/images (stables). Les données utilisateur vivent dans IndexedDB, jamais dans
+   le cache — rien à synchroniser, une mise à jour ne touche pas l'historique. */
+const CACHE = 'chrono-v11';
 const ASSETS = [
   './',
   './index.html',
@@ -33,13 +35,17 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  e.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      // met en cache les nouveaux GET same-origin réussis
-      if (res && res.status === 200 && new URL(req.url).origin === self.location.origin) {
-        const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy));
-      }
-      return res;
-    }).catch(() => caches.match('./index.html')))
-  );
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return; // laisse passer le cross-origin
+
+  const keep = (res) => { if (res && res.status === 200) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; };
+  const isShell = req.mode === 'navigate' || /\.(?:js|css|json|html)$/.test(url.pathname);
+
+  if (isShell) {
+    // network-first : la dernière version en priorité, cache si hors-ligne
+    e.respondWith(fetch(req).then(keep).catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html'))));
+  } else {
+    // cache-first : icônes/images stables
+    e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then(keep)));
+  }
 });
