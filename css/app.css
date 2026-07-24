@@ -256,6 +256,13 @@ label.field > span { display: block; font-size: 12px; font-weight: 700; color: v
 .prog-pick b { font-size: 15px; letter-spacing: -.01em; }
 .prog-pick.on { border-color: var(--signal); background: color-mix(in srgb, var(--signal) 8%, var(--card)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--signal) 16%, transparent); }
 
+/* ---------- segmented control (Biblio) ---------- */
+.seg2 { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+.seg2 .seg-btn { flex: 1; border: 0; background: transparent; color: var(--muted); font-weight: 700; font-size: 13.5px; padding: 9px; border-radius: 9px; }
+.seg2 .seg-btn.on { background: var(--signal); color: #fff; }
+.upnext .mini { cursor: pointer; }
+.prev-ord { width: 22px; text-align: center; font-weight: 700; color: var(--muted); font-size: 13px; flex: 0 0 22px; }
+
 /* ---------- explication d'ordre en séance ---------- */
 .why { margin-bottom: 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: color-mix(in srgb, var(--signal) 5%, var(--card)); padding: 12px 14px; }
 .why summary { cursor: pointer; font-weight: 800; font-size: 13.5px; color: var(--signal-ink); list-style: none; }

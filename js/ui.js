@@ -80,7 +80,7 @@
     <div class="between" style="margin:22px 2px 10px"><div class="eyebrow">À suivre</div>
       <button class="btn ghost sm" data-action="reorder">Changer de séance</button></div>
     <div class="upnext">
-      ${up.map(x => `<div class="mini"><div class="k">${esc(x.code)}</div><div class="n">${esc(x.name)}</div><div class="muted num" style="font-size:11px;margin-top:4px">~${Logic.estimateMinutes(Logic.activeBlocks(x))} min</div></div>`).join('')}
+      ${up.map(x => `<div class="mini" data-action="preview-session" data-id="${esc(x.id)}"><div class="k">${esc(x.code)}</div><div class="n">${esc(x.name)}</div><div class="muted num" style="font-size:11px;margin-top:4px">~${Logic.estimateMinutes(Logic.activeBlocks(x))} min</div></div>`).join('')}
     </div>
 
     <div class="card pad" style="margin-top:22px">
@@ -272,15 +272,25 @@
   //  BIBLIOTHÈQUE — CRUD complet
   // =====================================================================
   let libFilter = '';
+  let libTab = 'exos'; // 'exos' | 'seances'
   function viewLibrary() {
+    return `
+    <div class="between" style="margin-bottom:12px"><h1 style="font-size:26px">Bibliothèque</h1>
+      ${libTab === 'exos' ? '<button class="btn primary sm" data-action="new-exercise">+ Exercice</button>' : ''}</div>
+    <div class="seg2" style="margin-bottom:14px">
+      <button class="seg-btn ${libTab === 'exos' ? 'on' : ''}" data-action="lib-tab" data-tab="exos">Exercices</button>
+      <button class="seg-btn ${libTab === 'seances' ? 'on' : ''}" data-action="lib-tab" data-tab="seances">Séances</button>
+    </div>
+    ${libTab === 'exos' ? libExercises() : libSeances()}`;
+  }
+
+  function libExercises() {
     const q = libFilter.toLowerCase();
     const list = S().exercises
       .filter(e => e.musclePrimary !== 'Cardio')
       .filter(e => !q || e.name.toLowerCase().includes(q) || e.musclePrimary.toLowerCase().includes(q))
       .sort((a, b) => (a.archived - b.archived) || a.musclePrimary.localeCompare(b.musclePrimary) || a.name.localeCompare(b.name));
     return `
-    <div class="between" style="margin-bottom:12px"><h1 style="font-size:26px">Bibliothèque</h1>
-      <button class="btn primary sm" data-action="new-exercise">+ Exercice</button></div>
     <input placeholder="Rechercher un exercice ou un muscle…" value="${esc(libFilter)}" data-action="lib-search" style="margin-bottom:14px">
     <div class="card">
       ${list.map(e => `<div class="lib-item ${e.archived ? 'archived' : ''}">
@@ -292,6 +302,45 @@
         <button class="btn ghost sm" data-action="edit-exercise" data-id="${e.id}">Éditer</button>
       </div>`).join('')}
     </div>`;
+  }
+
+  const CODE_LABEL = { PUSH: 'Poussée (pecs · épaules · triceps)', PULL: 'Tirage (dos · biceps)', LEGS: 'Jambes', UPPER: 'Haut du corps', LOWER: 'Bas du corps', FULL: 'Full body', HAUT: 'Torse (pecs + dos)', BRAS: 'Épaules & bras' };
+  function libSeances() {
+    const prog = Store.activeProgram();
+    const sessions = Store.currentOrder();
+    const groups = {}; const order = [];
+    sessions.forEach(t => { if (!groups[t.code]) { groups[t.code] = []; order.push(t.code); } groups[t.code].push(t); });
+    return `
+    <div class="card pad" style="margin-bottom:6px;display:flex;justify-content:space-between;align-items:center">
+      <div><div class="eyebrow">Programme actif</div><div class="ex-title" style="font-size:15px">${esc(prog.name)}</div><div class="ex-meta">${esc(prog.days)}</div></div>
+      <button class="btn ghost sm" data-action="prog-detail" data-id="${prog.id}">Le pourquoi</button>
+    </div>
+    ${order.map(code => `<div class="eyebrow" style="margin:18px 2px 8px">${esc(CODE_LABEL[code] || code)}</div>
+      <div class="card">${groups[code].map(t => `<div class="lib-item prog-row" data-action="preview-session" data-id="${esc(t.id)}">
+        ${ILLU.svgFor(t.blocks[0] && (S().ex(t.blocks[0].exId) || {}).pattern || 'isolation', '')}
+        <div style="flex:1;min-width:0"><div class="ex-title" style="font-size:15px">${esc(t.name)}</div><div class="ex-meta">${esc(t.focus)} · ${t.blocks.length} exos · ~${Logic.estimateMinutes(t.blocks)} min</div></div>
+        <span class="badge-eq">Aperçu ▸</span></div>`).join('')}</div>`).join('')}
+    <p class="muted" style="font-size:12px;margin-top:14px;padding:0 4px">Touche une séance pour la prévisualiser en entier, puis la lancer directement. Change de programme dans les Réglages.</p>`;
+  }
+
+  function openSessionPreview(id) {
+    const t = Store.templateById(id); if (!t) return;
+    const isActive = Store.currentOrder().some(x => x.id === id);
+    const rows = t.blocks.map((b, i) => {
+      const ex = S().ex(b.exId); if (!ex) return '';
+      const rng = `${ex.repMin}${ex.repMax !== ex.repMin ? '-' + ex.repMax : ''}`;
+      const target = ex.perLeg ? `${b.sets}×${rng}/j` : `${b.sets}×${rng}`;
+      return `<div class="lib-item"><span class="prev-ord num">${i + 1}</span>${ILLU.svgFor(ex.pattern, ex.musclePrimary)}
+        <div style="flex:1;min-width:0"><div class="ex-title" style="font-size:14px">${esc(ex.name)}${ex.elbowUnsafe ? ' <span class="avoid-flag">à éviter</span>' : ''}</div><div class="ex-meta">${esc(ex.musclePrimary)} · ${esc(ex.equipment)}</div></div>
+        <div class="ex-target num">${target}</div></div>`;
+    }).join('');
+    openSheet(`<div class="grab"></div>
+      <div class="eyebrow">${esc(CODE_LABEL[t.code] || t.code)}</div>
+      <h2 style="font-size:22px;margin:2px 0 4px">${esc(t.name)}</h2>
+      <div class="ex-meta">${esc(t.focus)} · ~${Logic.estimateMinutes(t.blocks)} min · ${t.blocks.length} exercices</div>
+      ${t.note ? `<details class="why" open style="margin-top:12px"><summary>Pourquoi cet ordre ?</summary><p>${esc(t.note)}</p></details>` : ''}
+      <div class="card" style="margin-top:12px">${rows}</div>
+      ${isActive ? `<button class="btn primary block" style="margin-top:14px" data-action="do-session" data-id="${esc(id)}">Faire cette séance maintenant</button>` : '<p class="muted" style="font-size:12px;text-align:center;margin-top:12px">Aperçu — active ce programme dans les Réglages pour la faire.</p>'}`);
   }
 
   function exerciseForm(ex) {
@@ -933,6 +982,9 @@
         closeSheet(); render(); break;
       }
       case 'ex-progress': openExProgress(el.dataset.id); break;
+      case 'lib-tab': libTab = el.dataset.tab; render(); break;
+      case 'preview-session': openSessionPreview(el.dataset.id); break;
+      case 'do-session': { await Store.bumpToFront(el.dataset.id); closeSheet(); go('home'); break; }
       case 'one-rm': openOneRM('', '', 'barre'); break;
       case 'one-rm-ex': { const ser = Logic.e1rmSeries(el.dataset.id); const top = ser.length ? ser[ser.length - 1].top : {}; const ex = S().ex(el.dataset.id); openOneRM(top.weight ?? '', top.reps ?? '', ex ? ex.equipment : 'barre'); break; }
 
