@@ -110,7 +110,7 @@
   function viewSession() {
     const d = S().draft;
     if (!d) return `<div class="empty"><div class="big">Aucune séance en cours</div><button class="btn primary" data-nav="home">Retour à l’accueil</button></div>`;
-    const cards = d.blocks.map((b, i) => sessionCard(b, i)).join('');
+    const cards = d.blocks.map((b, i) => sessionCard(b, i, d.blocks.length)).join('');
     const doneCount = d.blocks.filter(b => b.sets.some(s => s.done)).length;
     return `
       <div class="between" style="margin-bottom:14px">
@@ -125,7 +125,7 @@
     `;
   }
 
-  function sessionCard(b, i) {
+  function sessionCard(b, i, nBlocks) {
     const ex = S().ex(b.exId);
     if (!ex) return '';
     const last = Logic.lastOccurrence(b.exId);
@@ -155,7 +155,11 @@
       <div class="ex-head">
         ${ILLU.svgFor(ex.pattern, ex.musclePrimary)}
         <div style="flex:1;min-width:0">
-          <div class="between"><div class="ex-title">${esc(ex.name)}</div>${ex.elbowUnsafe ? '<span class="avoid-flag">à éviter</span>' : ''}</div>
+          <div class="between"><div class="ex-title">${esc(ex.name)}</div>
+            <div class="row" style="gap:4px;flex:0 0 auto">${ex.elbowUnsafe ? '<span class="avoid-flag">à éviter</span>' : ''}
+              <button class="mv" data-action="move-ex" data-b="${i}" data-dir="-1" aria-label="Monter l’exercice" ${i === 0 ? 'disabled' : ''}>▲</button>
+              <button class="mv" data-action="move-ex" data-b="${i}" data-dir="1" aria-label="Descendre l’exercice" ${i === nBlocks - 1 ? 'disabled' : ''}>▼</button>
+            </div></div>
           <div class="ex-meta">${esc(ex.musclePrimary)} · ${esc(ex.equipment)}${b.substitutedFrom ? ' · remplacé' : ''}${b.superset ? ' · superset' : ''}</div>
           <div class="ex-target num">Cible ${target}</div>
           ${b.note ? `<div class="ex-note-line">📝 ${esc(b.note)}</div>` : ''}
@@ -349,7 +353,7 @@
     const patterns = [['push-h', 'Poussée horizontale'], ['push-v', 'Poussée verticale'], ['pull-h', 'Tirage horizontal'], ['pull-v', 'Tirage vertical'], ['hinge', 'Hinge (charnière)'], ['squat', 'Squat'], ['curl', 'Curl'], ['extension', 'Extension'], ['isolation', 'Isolation (autre)']];
     const equips = ['haltère', 'barre', 'câble', 'machine', 'poids du corps'];
     const isNew = !ex;
-    ex = ex || { id: '', name: '', musclePrimary: 'Pectoraux', equipment: 'haltère', pattern: 'push-h', repMin: 8, repMax: 12, role: 'isolation', elbowSensitive: false, elbowUnsafe: false, tips: [], biomech: '', archived: false, custom: true };
+    ex = ex || { id: '', name: '', musclePrimary: 'Pectoraux', equipment: 'haltère', pattern: 'push-h', repMin: 8, repMax: 12, role: 'isolation', elbowSensitive: false, elbowUnsafe: false, tips: [], biomech: '', archived: false, custom: true, restSec: null };
     return `<div class="grab"></div>
       <h2 style="margin-bottom:4px">${isNew ? 'Nouvel exercice' : 'Éditer l’exercice'}</h2>
       <p class="muted" style="font-size:13px;margin:0 0 16px">${isNew ? 'Son illustration sera générée automatiquement depuis le pattern choisi.' : 'Tu peux modifier chaque champ, y compris sur un exercice de base.'}</p>
@@ -366,6 +370,7 @@
           <label class="field" style="flex:1"><span>Reps max</span><input class="num" inputmode="numeric" id="f-repmax" value="${ex.repMax}"></label>
           <label class="field" style="flex:1"><span>Rôle</span><select id="f-role"><option value="compound" ${ex.role === 'compound' ? 'selected' : ''}>Compound</option><option value="isolation" ${ex.role === 'isolation' ? 'selected' : ''}>Isolation</option></select></label>
         </div>
+        <label class="field"><span>Repos entre séries (s) — vide = réglage global</span><input class="num" inputmode="numeric" id="f-rest" value="${ex.restSec ?? ''}" placeholder="${(S().settings.restByRole[ex.role] || 120)}"></label>
         <label class="field"><span>Note biomécanique (courte)</span><textarea id="f-bio" rows="2">${esc(ex.biomech || '')}</textarea></label>
         <label class="field"><span>Tips d’exécution (une ligne chacun)</span><textarea id="f-tips" rows="3">${esc((ex.tips || []).join('\n'))}</textarea></label>
         <label class="row" style="gap:8px"><input type="checkbox" id="f-elbow" style="width:auto" ${ex.elbowSensitive ? 'checked' : ''}><span style="font-size:13px">Coude sensible (rappel mobilité pendant le repos)</span></label>
@@ -786,7 +791,8 @@
       <div class="timer-controls">
         <button class="btn" data-action="timer-add">+30 s</button>
         <button class="btn" data-action="timer-skip">Passer</button>
-      </div>`;
+      </div>
+      ${ex ? `<button class="btn timer-save" data-action="timer-save-rest">Mémoriser ce repos pour ${esc(ex.name)}</button>` : ''}`;
     document.body.appendChild(ov);
     syncOverlayState();
     timer = { total: seconds, remaining: seconds, exId };
@@ -1018,7 +1024,7 @@
         if (set.done) {
           if (set.reps == null || set.reps === '') set.reps = S().ex(d.blocks[b].exId).repMin;
           const ex = S().ex(d.blocks[b].exId);
-          const rest = S().settings.restByRole[ex.role] || 120;
+          const rest = Logic.restFor(ex);
           await Store.saveDraft(); render();
           startTimer(d.blocks[b].superset ? Math.round(rest * 0.6) : rest, ex.id);
           return;
@@ -1028,6 +1034,12 @@
       case 'add-set': { const b = +el.dataset.b; const last = d.blocks[b].sets[d.blocks[b].sets.length - 1]; d.blocks[b].sets.push({ weight: last ? last.weight : '', reps: '', rir: last ? last.rir : 2, done: false }); await Store.saveDraft(); render(); break; }
       case 'del-set': { const b = +el.dataset.b; if (d.blocks[b].sets.length > 1) d.blocks[b].sets.pop(); await Store.saveDraft(); render(); break; }
       case 'superset': { const b = +el.dataset.b; d.blocks[b].superset = !d.blocks[b].superset; await Store.saveDraft(); render(); break; }
+      case 'move-ex': {
+        const b = +el.dataset.b, j = b + (+el.dataset.dir);
+        if (j < 0 || j >= d.blocks.length) break;
+        [d.blocks[b], d.blocks[j]] = [d.blocks[j], d.blocks[b]];
+        await Store.saveDraft(); render(); break;
+      }
       case 'ex-note': {
         const b = +el.dataset.b; const ex = S().ex(d.blocks[b].exId);
         openSheet(`<div class="grab"></div><h2>Note · ${esc(ex.name)}</h2>
@@ -1135,6 +1147,13 @@
       // ---- timer ----
       case 'timer-add': if (timer) { timer.remaining += 30; timer.total += 30; paintTimer(); } break;
       case 'timer-skip': stopTimer(); break;
+      case 'timer-save-rest': {
+        if (!timer || !timer.exId) break;
+        const ex = S().ex(timer.exId); if (!ex) break;
+        ex.restSec = timer.total; await Store.saveExercise(ex);
+        toast(`Repos de ${Math.floor(timer.total / 60)}:${String(timer.total % 60).padStart(2, '0')} mémorisé pour ${ex.name}.`);
+        break;
+      }
 
       // ---- banners ----
       case 'apply-deload': {
@@ -1224,6 +1243,7 @@
     ex.repMin = +g('f-repmin').value || 8;
     ex.repMax = +g('f-repmax').value || ex.repMin;
     ex.role = g('f-role').value;
+    { const r = parseInt(g('f-rest').value, 10); ex.restSec = (r > 0 ? r : null); }
     ex.biomech = g('f-bio').value.trim();
     ex.tips = g('f-tips').value.split('\n').map(s => s.trim()).filter(Boolean);
     ex.elbowSensitive = g('f-elbow').checked;

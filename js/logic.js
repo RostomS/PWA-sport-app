@@ -191,6 +191,15 @@
     return out;
   }
 
+  // ---------- Repos par exercice ----------
+  // Priorité : réglage propre à l'exercice > réglage global par rôle (compound/isolation).
+  function restFor(ex) {
+    if (!ex) return 120;
+    const own = +ex.restSec;
+    if (own > 0) return own;
+    return S().settings.restByRole[ex.role] || 120;
+  }
+
   // ---------- Plate calculator : décompose une charge en disques par côté ----------
   function plateCalc(target, equipment) {
     if (equipment !== 'barre') return null;
@@ -291,6 +300,6 @@
     e1rm, roundToIncrement, startOfWeek, occurrences, lastOccurrence, doneSets,
     progression, stagnation, prForEntry, weeklyVolume, estimateMinutes, activeBlocks,
     recompose, substitutes, fatigueSuggests4Day, deloadStatus, regularityDays,
-    plateCalc, warmupSets, e1rmSeries, loggedExercises, consistencyWeeks, bodyStats, rirCalibration,
+    restFor, plateCalc, warmupSets, e1rmSeries, loggedExercises, consistencyWeeks, bodyStats, rirCalibration,
   };
 })();
