@@ -498,6 +498,20 @@
       <div class="card">${ser.slice().reverse().map(p => `<div class="lib-item"><div style="flex:1"><div class="ex-title num" style="font-size:13px">${p.top.weight} kg × ${p.top.reps}</div><div class="ex-meta">1RM est. ${p.value.toFixed(1)} kg · volume ${p.volume}</div></div><div class="muted num" style="font-size:11px">${fmtDate(p.date)}</div></div>`).join('')}</div>`);
   }
 
+  // Liste filtrable d'exercices pour l'éditeur de programme.
+  function pickList(q) {
+    const t = Store.templateById(progEdit); if (!t) return '';
+    q = (q || '').toLowerCase();
+    const opts = S().exercises.filter(x => !x.archived && x.musclePrimary !== 'Cardio' && !t.blocks.some(b => b.exId === x.id))
+      .filter(x => !q || x.name.toLowerCase().includes(q) || x.musclePrimary.toLowerCase().includes(q) || x.equipment.toLowerCase().includes(q))
+      .sort((a, b) => a.musclePrimary.localeCompare(b.musclePrimary) || a.name.localeCompare(b.name));
+    if (!opts.length) return '<div class="empty" style="padding:16px">Aucun exercice ne correspond.</div>';
+    return `<div class="card">${opts.map(x => `<div class="lib-item prog-row" data-action="tpl-add-do" data-id="${x.id}">
+      ${ILLU.svgFor(x.pattern, x.musclePrimary)}
+      <div style="flex:1;min-width:0"><div class="ex-title" style="font-size:14px">${esc(x.name)}</div><div class="ex-meta">${esc(x.musclePrimary)} · ${esc(x.equipment)}</div></div>
+      <span class="badge-eq">+</span></div>`).join('')}</div>`;
+  }
+
   function openProgramDetail(id) {
     const pr = DATA.PROGRAMS.find(p => p.id === id); if (!pr) return;
     const sessions = S().programs[id] || [];
@@ -678,16 +692,70 @@
   // =====================================================================
   //  SHEETS (modales bas d'écran)
   // =====================================================================
+  // Verrouille le défilement de la page derrière une couche modale.
+  // Sur iOS, `overflow:hidden` ne suffit pas → on fige le body en position fixe.
+  let lockedScrollY = 0, scrollLocked = false;
+  function syncOverlayState() {
+    const open = !!(document.getElementById('sheet') || document.getElementById('timer') || document.getElementById('onboard'));
+    const appEl = app();
+    if (appEl) appEl.setAttribute('aria-hidden', open ? 'true' : 'false');
+    const tb = document.getElementById('tabbar'); if (tb) tb.setAttribute('aria-hidden', open ? 'true' : 'false');
+    if (open && !scrollLocked) {
+      lockedScrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${lockedScrollY}px`;
+      document.body.style.left = '0'; document.body.style.right = '0';
+      scrollLocked = true;
+    } else if (!open && scrollLocked) {
+      document.body.style.position = ''; document.body.style.top = '';
+      document.body.style.left = ''; document.body.style.right = '';
+      window.scrollTo(0, lockedScrollY);
+      scrollLocked = false;
+    }
+  }
+
   function openSheet(html) {
-    closeSheet();
+    closeSheet(true);
     const bd = document.createElement('div');
     bd.className = 'sheet-backdrop'; bd.id = 'sheet';
-    bd.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" tabindex="-1">${html}</div>`;
+    bd.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" tabindex="-1">
+      <div class="sheet-head"><span class="grab-h"></span>
+        <button class="sheet-close" data-action="close-sheet" aria-label="Fermer">✕</button></div>
+      ${html}</div>`;
     bd.addEventListener('click', e => { if (e.target === bd) closeSheet(); });
     document.body.appendChild(bd);
+    attachSwipeToClose(bd.querySelector('.sheet-head'), bd.querySelector('.sheet'));
     bd.firstElementChild.focus({ preventScroll: true }); // entre dans le dialogue sans ouvrir le clavier
+    syncOverlayState();
   }
-  function closeSheet() { const s = document.getElementById('sheet'); if (s) s.remove(); }
+  function closeSheet(silent) { const s = document.getElementById('sheet'); if (s) s.remove(); if (!silent) syncOverlayState(); }
+
+  // Glisser la poignée vers le bas pour fermer (geste attendu sur mobile).
+  function attachSwipeToClose(handle, sheet) {
+    if (!handle || !sheet) return;
+    let startY = null;
+    handle.addEventListener('touchstart', (e) => { startY = e.touches[0].clientY; sheet.style.transition = 'none'; }, { passive: true });
+    handle.addEventListener('touchmove', (e) => {
+      if (startY == null) return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy > 0) sheet.style.transform = `translateY(${dy}px)`;
+    }, { passive: true });
+    handle.addEventListener('touchend', (e) => {
+      if (startY == null) return;
+      const dy = (e.changedTouches[0].clientY - startY);
+      sheet.style.transition = ''; sheet.style.transform = '';
+      if (dy > 70) closeSheet();
+      startY = null;
+    });
+  }
+
+  // Petit message éphémère (remplace les alertes système, trop brutales en PWA).
+  function toast(msg) {
+    const t = document.createElement('div');
+    t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 320); }, 2600);
+  }
 
   // =====================================================================
   //  TIMER CHRONOGRAPHE (élément signature)
@@ -720,6 +788,7 @@
         <button class="btn" data-action="timer-skip">Passer</button>
       </div>`;
     document.body.appendChild(ov);
+    syncOverlayState();
     timer = { total: seconds, remaining: seconds, exId };
     paintTimer();
     timer.interval = setInterval(() => {
@@ -742,7 +811,7 @@
     try { if (Notification && Notification.permission === 'granted') new Notification('Repos terminé', { body: 'Prochaine série 💪', tag: 'rest', silent: false }); } catch (e) {}
     stopTimer();
   }
-  function stopTimer() { if (timer && timer.interval) clearInterval(timer.interval); timer = null; releaseWake(); const t = document.getElementById('timer'); if (t) t.remove(); }
+  function stopTimer() { if (timer && timer.interval) clearInterval(timer.interval); timer = null; releaseWake(); const t = document.getElementById('timer'); if (t) t.remove(); syncOverlayState(); }
 
   // =====================================================================
   //  DRAFT (démarrer / manipuler une séance)
@@ -893,7 +962,7 @@
           else { S().programs = S().programs || {}; if (d.program6) S().programs['ppl6'] = d.program6; if (d.program4) S().programs['ul4'] = d.program4; }
           await Store.saveProgram();
           location.reload();
-        } catch (err) { alert('Fichier invalide — ce n’est pas une sauvegarde Chronographe.'); }
+        } catch (err) { toast('Fichier invalide — ce n’est pas une sauvegarde Chronographe.'); }
       };
       r.readAsText(f);
     };
@@ -1069,10 +1138,10 @@
 
       // ---- banners ----
       case 'apply-deload': {
-        const dl = S().settings.deload; dl.active = true; dl.activeUntil = new Date(Date.now() + 7 * 864e5).toISOString(); dl.lastDeloadDate = new Date().toISOString();
+        const dl = S().settings.deload; dl.active = true; dl.activeUntil = new Date(Date.now() + 7 * 864e5).toISOString(); dl.lastDeloadDate = new Date().toISOString(); dl.snoozeUntil = null;
         await Store.saveSettings(); go(route === 'more' ? 'more' : 'home'); break;
       }
-      case 'dismiss-deload': { S().settings.deload.lastDeloadDate = new Date().toISOString(); await Store.saveSettings(); go('home'); break; }
+      case 'dismiss-deload': { S().settings.deload.snoozeUntil = new Date(Date.now() + 7 * 864e5).toISOString(); await Store.saveSettings(); go('home'); break; }
       case 'to-4day': await Store.setMode(4); go('home'); break;
       case 'dismiss-fatigue': { // marquer les check-ins vus pour ne plus proposer immédiatement
         S().sessions.filter(s => s.checkin).slice(-2).forEach(s => s.checkin._seen = true);
@@ -1105,8 +1174,9 @@
       case 'tpl-remove': { const t = Store.templateById(progEdit); t.blocks.splice(+el.dataset.i, 1); await Store.saveProgram(); render(); break; }
       case 'tpl-add': {
         const t = Store.templateById(progEdit);
-        const opts = S().exercises.filter(x => !x.archived && x.musclePrimary !== 'Cardio' && !t.blocks.some(b => b.exId === x.id));
-        openSheet(`<div class="grab"></div><h2>Ajouter à ${esc(t.name)}</h2><div style="margin-top:10px">${opts.map(x => `<button class="btn block" style="margin-top:8px" data-action="tpl-add-do" data-id="${x.id}">${esc(x.name)} · ${esc(x.musclePrimary)}</button>`).join('')}</div>`);
+        openSheet(`<h2>Ajouter à ${esc(t.name)}</h2>
+          <input id="pick-q" placeholder="Rechercher un exercice ou un muscle…" data-action="pick-search" style="margin-top:12px">
+          <div id="pick-list" style="margin-top:10px">${pickList('')}</div>`);
         break;
       }
       case 'tpl-add-do': { const t = Store.templateById(progEdit); t.blocks.push({ exId: el.dataset.id, sets: 3 }); await Store.saveProgram(); closeSheet(); render(); break; }
@@ -1137,6 +1207,7 @@
       case 'barweight': S().settings.barWeight = +t.value || 20; await Store.saveSettings(); break;
       case 'plates-setting': S().settings.plates = t.value.split(',').map(x => parseFloat(x.trim())).filter(x => x > 0).sort((a, b) => b - a); await Store.saveSettings(); break;
       case 'plate-target': { const out = document.getElementById('plate-out'); if (out) out.innerHTML = plateHTML(t.value); break; }
+      case 'pick-search': { const out = document.getElementById('pick-list'); if (out) out.innerHTML = pickList(t.value); break; }
       case 'orm': { const out = document.getElementById('orm-out'); if (out) out.innerHTML = ormTable(document.getElementById('orm-w').value, document.getElementById('orm-r').value, document.getElementById('orm-eq').value); break; }
     }
   }
@@ -1173,17 +1244,17 @@
         if (reg.waiting) reg.waiting.postMessage('SKIP_WAITING'); // active tout de suite → recharge auto
       }
       // si une mise à jour existe, controllerchange recharge la page ; sinon on rassure.
-      setTimeout(() => { if (!window.__reloading) alert('Tu es déjà à jour ✓ · version ' + (window.APP_VERSION || '')); }, 2500);
+      setTimeout(() => { if (!window.__reloading) toast('Tu es déjà à jour ✓ · version ' + (window.APP_VERSION || '')); }, 2500);
     } catch (e) { location.reload(); }
   }
 
   // ---- notifications ----
   async function enableReminder() {
-    if (!('Notification' in window)) { alert('Les notifications ne sont pas disponibles sur ce navigateur.'); return; }
+    if (!('Notification' in window)) { toast('Les notifications ne sont pas disponibles sur ce navigateur.'); return; }
     let perm = Notification.permission;
     if (perm === 'default') perm = await Notification.requestPermission();
-    if (perm !== 'granted') { alert('Autorise les notifications pour recevoir le rappel.'); return; }
-    if (!(S().settings.plans && S().settings.plans.length) && !S().settings.reminderTime) { alert('Ajoute d’abord un plan pour programmer un rappel.'); return; }
+    if (perm !== 'granted') { toast('Autorise les notifications dans les réglages de ton téléphone pour recevoir le rappel.'); return; }
+    if (!(S().settings.plans && S().settings.plans.length) && !S().settings.reminderTime) { toast('Ajoute d’abord un plan pour programmer un rappel.'); return; }
     scheduleReminder();
     render();
   }
@@ -1234,8 +1305,9 @@
     let el = document.getElementById('onboard');
     if (!el) { el = document.createElement('div'); el.id = 'onboard'; el.className = 'onboard'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Configuration initiale'); document.body.appendChild(el); }
     el.innerHTML = onboardStep();
+    syncOverlayState();
   }
-  function closeOnboard() { const el = document.getElementById('onboard'); if (el) el.remove(); }
+  function closeOnboard() { const el = document.getElementById('onboard'); if (el) el.remove(); syncOverlayState(); }
 
   function onboardStep() {
     const dots = Array.from({ length: ONB_STEPS }, (_, i) => `<span class="odot ${i === onb.step ? 'on' : ''} ${i < onb.step ? 'past' : ''}"></span>`).join('');
@@ -1350,7 +1422,7 @@
     // (tous rendus hors de #app).
     document.addEventListener('click', onClick);
     document.addEventListener('change', onChange);
-    document.addEventListener('input', (e) => { const a = e.target.dataset && e.target.dataset.action; if (a === 'cardio-dur' || a === 'lib-search' || a === 'plate-target' || a === 'orm') onChange(e); });
+    document.addEventListener('input', (e) => { const a = e.target.dataset && e.target.dataset.action; if (a === 'cardio-dur' || a === 'lib-search' || a === 'plate-target' || a === 'orm' || a === 'pick-search') onChange(e); });
     // Échap : ferme la feuille ouverte, sinon passe le repos (accessibilité clavier / desktop).
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return;

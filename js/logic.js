@@ -165,7 +165,7 @@
     const last2 = withCk.slice(-2);
     if (last2.length < 2) return false;
     // check-in "faible" : énergie ou sommeil = 1 (bas)
-    const weak = (c) => c.energy === 1 || c.sleep === 1;
+    const weak = (c) => (c.energy === 1 || c.sleep === 1) && !c._seen;
     // consécutifs sur une semaine
     const within = new Date(last2[1].date) - new Date(last2[0].date) <= 7 * 864e5;
     return within && last2.every(s => weak(s.checkin));
@@ -176,7 +176,8 @@
     const dl = S().settings.deload;
     const weeks = Math.floor((Date.now() - new Date(dl.lastDeloadDate).getTime()) / (7 * 864e5));
     const active = dl.active && dl.activeUntil && Date.now() < new Date(dl.activeUntil).getTime();
-    return { weeks, due: weeks >= 5 && !active, active };
+    const snoozed = dl.snoozeUntil && Date.now() < new Date(dl.snoozeUntil).getTime();
+    return { weeks, due: weeks >= 5 && !active && !snoozed, active };
   }
 
   // ---------- 17/18. régularité (4 dernières semaines) ----------

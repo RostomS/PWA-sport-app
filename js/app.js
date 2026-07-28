@@ -1,5 +1,5 @@
 /* app.js — Bootstrap : enregistre le service worker, charge l'état, lance l'UI. */
-window.APP_VERSION = '11';
+window.APP_VERSION = '12';
 (async function () {
   // Service worker (offline) + mise à jour automatique transparente.
   if ('serviceWorker' in navigator) {
