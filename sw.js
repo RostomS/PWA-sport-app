@@ -3,7 +3,7 @@
    dernière version quand en ligne, cache en secours hors-ligne. CACHE-FIRST pour les
    icônes/images (stables). Les données utilisateur vivent dans IndexedDB, jamais dans
    le cache — rien à synchroniser, une mise à jour ne touche pas l'historique. */
-const CACHE = 'chrono-v13';
+const CACHE = 'chrono-v14';
 const ASSETS = [
   './',
   './index.html',

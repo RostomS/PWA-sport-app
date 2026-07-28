@@ -518,7 +518,7 @@
   }
 
   function openProgramDetail(id) {
-    const pr = DATA.PROGRAMS.find(p => p.id === id); if (!pr) return;
+    const pr = Store.allPrograms().find(p => p.id === id); if (!pr) return;
     const sessions = S().programs[id] || [];
     // Couverture musculaire hebdomadaire (prouve que tous les muscles sont sollicités).
     const cov = {}; DATA.MUSCLE_GROUPS.forEach(m => cov[m] = 0);
@@ -589,14 +589,19 @@
 
     <div class="card pad stack">
       <div class="eyebrow">Bibliothèque de programmes</div>
-      ${DATA.PROGRAMS.map(pr => { const active = s.programId === pr.id; return `<div class="prog-pick ${active ? 'on' : ''}">
+      ${Store.allPrograms().map(pr => { const active = s.programId === pr.id; return `<div class="prog-pick ${active ? 'on' : ''}">
         <button data-action="set-program" data-id="${pr.id}" style="all:unset;cursor:pointer;display:block">
           <div class="between"><b>${esc(pr.name)}</b>${active ? '<span class="chip ok" style="font-size:10px">Actif</span>' : `<span class="badge-eq">${esc(pr.days)}</span>`}</div>
           <div class="ex-meta" style="margin-top:3px">${esc(pr.mode)}</div>
-          <div class="ex-meta" style="margin-top:4px">${esc(pr.desc)}</div>
+          <div class="ex-meta" style="margin-top:4px">${esc(pr.desc)}${pr.custom ? ` · <b>${(S().programs[pr.id] || []).length} séance(s)</b>` : ''}</div>
         </button>
-        <button class="btn ghost sm" style="margin-top:10px" data-action="prog-detail" data-id="${pr.id}">Voir le programme &amp; le pourquoi</button>
+        <div class="row" style="margin-top:10px;gap:6px">
+          <button class="btn ghost sm" data-action="prog-detail" data-id="${pr.id}">Voir le pourquoi</button>
+          ${pr.custom ? `<button class="btn ghost sm" data-action="prog-edit" data-id="${pr.id}">Éditer les séances</button>
+          <button class="btn ghost sm danger" data-action="prog-delete" data-id="${pr.id}">Supprimer</button>` : ''}
+        </div>
       </div>`; }).join('')}
+      <button class="btn block" data-action="prog-create">+ Créer mon programme</button>
       <p class="muted" style="font-size:12px;margin:0">Change à tout moment : l’historique reste continu et la rotation repart proprement sur le nouveau programme. Le repli fatigue bascule PPL ↔ Upper/Lower.</p>
     </div>
 
@@ -670,16 +675,28 @@
   // =====================================================================
   //  ÉDITEUR DE PROGRAMME (réordonner / ajouter / retirer / séries)
   // =====================================================================
-  let progEdit = null; // templateId en cours d'édition
+  let progEdit = null;      // templateId en cours d'édition
+  let pendingProgram = null; // programme visé par l'éditeur (perso fraîchement créé)
+  let lastPickQuery = null;  // dernière requête du sélecteur d'exercices
   function viewProgram() {
-    const order = Store.currentOrder();
+    const pid = pendingProgram || S().settings.programId;
+    const order = S().programs[pid] || [];
+    const meta = Store.allPrograms().find(p => p.id === pid) || Store.activeProgram();
     if (!progEdit) {
       return `<div class="between" style="margin-bottom:12px"><h1 style="font-size:24px">Mon programme</h1><button class="btn ghost sm" data-nav="more">Retour</button></div>
-      <p class="muted" style="font-size:13px;margin:0 0 14px">Programme : ${esc(Store.activeProgram().name)}. Touche une séance pour ajuster ses exercices et séries.</p>
-      <div class="card">${order.map(t => `<div class="lib-item"><div style="flex:1"><div class="ex-title" style="font-size:15px">${esc(t.name)}</div><div class="ex-meta">${t.blocks.length} exercices · ${esc(t.focus)}</div></div><button class="btn ghost sm" data-action="edit-template" data-id="${t.id}">Éditer</button></div>`).join('')}</div>`;
+      <p class="muted" style="font-size:13px;margin:0 0 14px">Programme : <b>${esc(meta.name)}</b>${pid !== S().settings.programId ? ' <span class="chip ghost" style="font-size:10px">non actif</span>' : ''}. Touche une séance pour ajuster ses exercices, ou crée la tienne.</p>
+      ${order.length ? `<div class="card">${order.map(t => `<div class="lib-item">
+        <div style="flex:1;min-width:0"><div class="ex-title" style="font-size:15px">${esc(t.name)}</div><div class="ex-meta">${t.blocks.length} exercices · ~${Logic.estimateMinutes(t.blocks)} min${t.focus ? ' · ' + esc(t.focus) : ''}</div></div>
+        <button class="btn ghost sm" data-action="tpl-dup" data-id="${t.id}" aria-label="Dupliquer">⧉</button>
+        <button class="btn ghost sm danger" data-action="tpl-del" data-id="${t.id}" aria-label="Supprimer">✕</button>
+        <button class="btn ghost sm" data-action="edit-template" data-id="${t.id}">Éditer</button></div>`).join('')}</div>`
+        : '<div class="empty"><div class="big">Aucune séance</div>Crée ta première séance ci-dessous.</div>'}
+      <button class="btn primary block" style="margin-top:14px" data-action="tpl-new">+ Créer une séance</button>`;
     }
     const t = Store.templateById(progEdit);
-    return `<div class="between" style="margin-bottom:12px"><h1 style="font-size:22px">${esc(t.name)}</h1><button class="btn ghost sm" data-action="prog-back">Séances</button></div>
+    return `<div class="between" style="margin-bottom:6px"><h1 style="font-size:22px">${esc(t.name)}</h1><button class="btn ghost sm" data-action="prog-back">Séances</button></div>
+    <div class="row" style="margin-bottom:12px;gap:8px"><span class="ex-meta" style="flex:1">${esc(t.focus || 'Sans focus')} · ~${Logic.estimateMinutes(t.blocks)} min</span>
+      <button class="btn ghost sm" data-action="tpl-rename" data-id="${t.id}">Renommer</button></div>
     <div class="card">
       ${t.blocks.map((b, i) => { const ex = S().ex(b.exId); return `<div class="lib-item">
         <div style="display:flex;flex-direction:column;gap:2px">
@@ -979,7 +996,7 @@
   //  GESTIONNAIRE D'ÉVÉNEMENTS (délégation)
   // =====================================================================
   async function onClick(e) {
-    const nav = e.target.closest('[data-nav]'); if (nav) { if (nav.dataset.nav === 'program') progEdit = null; go(nav.dataset.nav); return; }
+    const nav = e.target.closest('[data-nav]'); if (nav) { if (nav.dataset.nav === 'program') { progEdit = null; pendingProgram = null; } go(nav.dataset.nav); return; }
     const el = e.target.closest('[data-action]'); if (!el) return;
     const a = el.dataset.action;
     const d = S().draft;
@@ -1175,7 +1192,70 @@
 
       // ---- mode / réglages ----
       case 'mode': await Store.setMode(+el.dataset.mode); render(); break;
-      case 'set-program': await Store.setProgram(el.dataset.id); closeSheet(); render(); break;
+      case 'set-program': {
+        const r = await Store.setProgram(el.dataset.id);
+        if (r === 'empty') { toast('Ajoute au moins une séance à ce programme avant de l’activer.'); break; }
+        closeSheet(); render(); break;
+      }
+      case 'prog-create': {
+        openSheet(`<h2>Créer mon programme</h2>
+          <p class="muted" style="font-size:13px;margin:4px 0 12px">Tu y ajouteras ensuite tes séances, avec les exercices de ton choix.</p>
+          <label class="field"><span>Nom du programme</span><input id="np-name" placeholder="ex. Mon split maison"></label>
+          <button class="btn primary block" style="margin-top:14px" data-action="prog-create-do">Créer</button>`);
+        break;
+      }
+      case 'prog-create-do': {
+        const name = (document.getElementById('np-name').value || '').trim();
+        const id = await Store.createProgram(name || 'Mon programme');
+        closeSheet(); progEdit = null; pendingProgram = id; go('program');
+        toast('Programme créé — ajoute ta première séance.'); break;
+      }
+      case 'prog-edit': { pendingProgram = el.dataset.id; progEdit = null; go('program'); break; }
+      case 'prog-delete': {
+        const id = el.dataset.id;
+        openSheet(`<h2>Supprimer ce programme ?</h2><p class="muted" style="font-size:13px;margin:6px 0 16px">Ses séances seront perdues. Ton historique d’entraînement, lui, reste intact.</p>
+          <button class="btn block" data-action="close-sheet">Annuler</button>
+          <button class="btn danger block" style="margin-top:8px" data-action="prog-delete-do" data-id="${esc(id)}">Supprimer</button>`);
+        break;
+      }
+      case 'prog-delete-do': { await Store.deleteProgram(el.dataset.id); closeSheet(); render(); toast('Programme supprimé.'); break; }
+      case 'tpl-new': {
+        openSheet(`<h2>Nouvelle séance</h2>
+          <label class="field"><span>Nom</span><input id="nt-name" placeholder="ex. Haut du corps A"></label>
+          <label class="field" style="margin-top:10px"><span>Type d’entraînement</span><select id="nt-code">${Object.keys(CODE_LABEL).map(c => `<option value="${c}">${esc(CODE_LABEL[c])}</option>`).join('')}<option value="PERSO">Séance personnalisée</option></select></label>
+          <label class="field" style="margin-top:10px"><span>Focus (optionnel)</span><input id="nt-focus" placeholder="ex. Pecs · dos"></label>
+          <button class="btn primary block" style="margin-top:14px" data-action="tpl-new-do">Créer la séance</button>`);
+        break;
+      }
+      case 'tpl-new-do': {
+        const pid = pendingProgram || S().settings.programId;
+        const id = await Store.addTemplate(pid, { name: (document.getElementById('nt-name').value || '').trim() || 'Nouvelle séance',
+          code: document.getElementById('nt-code').value, focus: (document.getElementById('nt-focus').value || '').trim() });
+        closeSheet(); progEdit = id; render(); toast('Séance créée — ajoute tes exercices.'); break;
+      }
+      case 'tpl-dup': { await Store.duplicateTemplate(pendingProgram || S().settings.programId, el.dataset.id); render(); toast('Séance dupliquée.'); break; }
+      case 'tpl-del': {
+        const id = el.dataset.id;
+        openSheet(`<h2>Supprimer cette séance ?</h2><p class="muted" style="font-size:13px;margin:6px 0 16px">Elle disparaît du programme. Les séances déjà loggées restent dans ton historique.</p>
+          <button class="btn block" data-action="close-sheet">Annuler</button>
+          <button class="btn danger block" style="margin-top:8px" data-action="tpl-del-do" data-id="${esc(id)}">Supprimer</button>`);
+        break;
+      }
+      case 'tpl-del-do': { await Store.removeTemplate(pendingProgram || S().settings.programId, el.dataset.id); closeSheet(); progEdit = null; render(); break; }
+      case 'tpl-rename': {
+        const t = Store.templateById(el.dataset.id);
+        openSheet(`<h2>Renommer</h2>
+          <label class="field"><span>Nom</span><input id="rt-name" value="${esc(t.name)}"></label>
+          <label class="field" style="margin-top:10px"><span>Focus</span><input id="rt-focus" value="${esc(t.focus || '')}"></label>
+          <button class="btn primary block" style="margin-top:14px" data-action="tpl-rename-do" data-id="${esc(t.id)}">Enregistrer</button>`);
+        break;
+      }
+      case 'tpl-rename-do': {
+        const t = Store.templateById(el.dataset.id);
+        t.name = (document.getElementById('rt-name').value || '').trim() || t.name;
+        t.focus = (document.getElementById('rt-focus').value || '').trim();
+        await Store.saveProgram(); closeSheet(); render(); break;
+      }
       case 'prog-detail': openProgramDetail(el.dataset.id); break;
       case 'enable-reminder': await enableReminder(); break;
       case 'export': await doExport(); break;
@@ -1192,6 +1272,7 @@
       case 'tpl-sets-minus': { const t = Store.templateById(progEdit); const b = t.blocks[+el.dataset.i]; if (b.sets > 1) b.sets--; await Store.saveProgram(); render(); break; }
       case 'tpl-remove': { const t = Store.templateById(progEdit); t.blocks.splice(+el.dataset.i, 1); await Store.saveProgram(); render(); break; }
       case 'tpl-add': {
+        lastPickQuery = '';
         const t = Store.templateById(progEdit);
         openSheet(`<h2>Ajouter à ${esc(t.name)}</h2>
           <input id="pick-q" placeholder="Rechercher un exercice ou un muscle…" data-action="pick-search" style="margin-top:12px">
@@ -1213,7 +1294,7 @@
       const box = document.getElementById('form-illu'); if (box) box.innerHTML = ILLU.svgFor(p, m); return;
     }
     switch (t.dataset.action) {
-      case 'lib-search': libFilter = t.value; { const cur = document.activeElement; render(); const ni = app().querySelector('[data-action="lib-search"]'); if (ni) { ni.focus(); ni.setSelectionRange(ni.value.length, ni.value.length); } } break;
+      case 'lib-search': if (t.value === libFilter) break; libFilter = t.value; { const cur = document.activeElement; render(); const ni = app().querySelector('[data-action="lib-search"]'); if (ni) { ni.focus(); ni.setSelectionRange(ni.value.length, ni.value.length); } } break;
       case 'cardio-dur': d.cardio.duration = +t.value; document.getElementById('cardio-dur-val').textContent = t.value; await Store.saveDraft(); break;
       case 'cardio-incline': d.cardio.incline = +t.value; await Store.saveDraft(); break;
       case 'cardio-speed': d.cardio.speed = +t.value; await Store.saveDraft(); break;
@@ -1226,7 +1307,12 @@
       case 'barweight': S().settings.barWeight = +t.value || 20; await Store.saveSettings(); break;
       case 'plates-setting': S().settings.plates = t.value.split(',').map(x => parseFloat(x.trim())).filter(x => x > 0).sort((a, b) => b - a); await Store.saveSettings(); break;
       case 'plate-target': { const out = document.getElementById('plate-out'); if (out) out.innerHTML = plateHTML(t.value); break; }
-      case 'pick-search': { const out = document.getElementById('pick-list'); if (out) out.innerHTML = pickList(t.value); break; }
+      case 'pick-search': {
+        if (t.value === lastPickQuery) break; // évite de détruire l'élément qu'on est en train de toucher
+        lastPickQuery = t.value;
+        const out = document.getElementById('pick-list'); if (out) out.innerHTML = pickList(t.value);
+        break;
+      }
       case 'orm': { const out = document.getElementById('orm-out'); if (out) out.innerHTML = ormTable(document.getElementById('orm-w').value, document.getElementById('orm-r').value, document.getElementById('orm-eq').value); break; }
     }
   }
