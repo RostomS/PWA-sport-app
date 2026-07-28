@@ -1,8 +1,20 @@
 /* app.js — Bootstrap : enregistre le service worker, charge l'état, lance l'UI. */
+window.APP_VERSION = '13';
 (async function () {
-  // Service worker (offline). Chemin relatif pour fonctionner quel que soit le sous-dossier d'hébergement.
+  // Service worker (offline) + mise à jour automatique transparente.
   if ('serviceWorker' in navigator) {
-    try { await navigator.serviceWorker.register('sw.js'); } catch (e) { /* offline non bloquant */ }
+    try {
+      // La page est-elle déjà contrôlée ? (vrai à la réouverture d'une app installée)
+      const hadController = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        // Un nouveau service worker vient de prendre le contrôle → recharge une fois pour
+        // afficher la nouvelle version. On ignore la toute première prise de contrôle (install initiale).
+        if (!hadController || window.__reloading) return;
+        window.__reloading = true; location.reload();
+      });
+      const reg = await navigator.serviceWorker.register('sw.js');
+      reg.update().catch(() => {});
+    } catch (e) { /* offline non bloquant */ }
   }
   try {
     await Store.load();
