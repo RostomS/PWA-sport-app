@@ -259,7 +259,7 @@ label.field > span { display: block; font-size: 12px; font-weight: 700; color: v
 
 /* ---------- segmented control (Biblio) ---------- */
 .seg2 { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
-.seg2 .seg-btn { flex: 1; border: 0; background: transparent; color: var(--muted); font-weight: 700; font-size: 13.5px; padding: 9px; border-radius: 9px; }
+.seg2 .seg-btn { flex: 1; border: 0; background: transparent; color: var(--muted); font-weight: 700; font-size: 12.5px; padding: 9px 4px; border-radius: 9px; white-space: nowrap; }
 .seg2 .seg-btn.on { background: var(--signal); color: #fff; }
 .upnext .mini { cursor: pointer; }
 .prev-ord { width: 22px; text-align: center; font-weight: 700; color: var(--muted); font-size: 13px; flex: 0 0 22px; }

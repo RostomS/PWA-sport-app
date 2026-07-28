@@ -13,11 +13,11 @@
   const IC = {
     home: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
     volume: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 20V9M12 20V4M19 20v-7"/></svg>',
-    lib: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3H18a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6.5A2.5 2.5 0 0 1 4 18.5v-13A2.5 2.5 0 0 1 6.5 3z"/><path d="M8 3v18"/></svg>',
+    train: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>',
     progress: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-5 4 4 8-8"/><path d="M21 8v4M21 8h-4"/></svg>',
     more: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>',
   };
-  const TABS = [['home', 'Aujourd’hui', IC.home], ['volume', 'Volume', IC.volume], ['lib', 'Biblio', IC.lib], ['progress', 'Progrès', IC.progress], ['more', 'Réglages', IC.more]];
+  const TABS = [['home', 'Aujourd’hui', IC.home], ['train', 'Programme', IC.train], ['volume', 'Volume', IC.volume], ['progress', 'Progrès', IC.progress], ['more', 'Réglages', IC.more]];
 
   function renderTabs() {
     const tb = document.getElementById('tabbar'); tb.hidden = false;
@@ -31,7 +31,7 @@
   //  RENDER dispatch
   // =====================================================================
   function render() {
-    const v = { home: viewHome, session: viewSession, volume: viewVolume, lib: viewLibrary, progress: viewProgress, more: viewMore, program: viewProgram }[route] || viewHome;
+    const v = { home: viewHome, session: viewSession, volume: viewVolume, train: viewTrain, progress: viewProgress, more: viewMore, program: viewProgram }[route] || viewHome;
     app().innerHTML = `<div class="view">${topbar()}${v()}</div>`;
     renderTabs();
   }
@@ -278,16 +278,51 @@
   //  BIBLIOTHÈQUE — CRUD complet
   // =====================================================================
   let libFilter = '';
-  let libTab = 'exos'; // 'exos' | 'seances'
-  function viewLibrary() {
+  let libTab = 'prog'; // 'prog' | 'seances' | 'exos'
+  function viewTrain() {
     return `
-    <div class="between" style="margin-bottom:12px"><h1 style="font-size:26px">Bibliothèque</h1>
+    <div class="between" style="margin-bottom:12px"><h1 style="font-size:26px">Programme</h1>
       ${libTab === 'exos' ? '<button class="btn primary sm" data-action="new-exercise">+ Exercice</button>' : ''}</div>
     <div class="seg2" style="margin-bottom:14px">
-      <button class="seg-btn ${libTab === 'exos' ? 'on' : ''}" data-action="lib-tab" data-tab="exos">Exercices</button>
+      <button class="seg-btn ${libTab === 'prog' ? 'on' : ''}" data-action="lib-tab" data-tab="prog">Mon programme</button>
       <button class="seg-btn ${libTab === 'seances' ? 'on' : ''}" data-action="lib-tab" data-tab="seances">Séances</button>
+      <button class="seg-btn ${libTab === 'exos' ? 'on' : ''}" data-action="lib-tab" data-tab="exos">Exercices</button>
     </div>
-    ${libTab === 'exos' ? libExercises() : libSeances()}`;
+    ${libTab === 'prog' ? trainPrograms() : libTab === 'seances' ? libSeances() : libExercises()}`;
+  }
+
+  // Segment « Mon programme » : programme actif + bibliothèque de programmes + édition.
+  function trainPrograms() {
+    const s = S().settings; const active = Store.activeProgram();
+    const sessions = Store.currentOrder() || [];
+    return `
+    <div class="card pad" style="background:linear-gradient(150deg,var(--steel),color-mix(in srgb,var(--steel) 70%,#000 20%));color:#fff;border:0">
+      <div class="eyebrow" style="color:rgba(255,255,255,.6)">Programme actif</div>
+      <div style="font-size:24px;font-weight:850;letter-spacing:-.02em;margin-top:4px">${esc(active.name)}</div>
+      <div style="color:rgba(255,255,255,.75);font-size:13px;margin-top:2px">${esc(active.days)} · ${sessions.length} séances</div>
+      <div class="row" style="margin-top:14px;gap:8px">
+        <button class="btn sm" style="background:rgba(255,255,255,.16);color:#fff;border:0" data-action="prog-detail" data-id="${esc(active.id)}">Le pourquoi</button>
+        <button class="btn sm" style="background:#fff;color:var(--steel);border:0" data-nav="program">Éditer mes séances</button>
+      </div>
+    </div>
+
+    <div class="eyebrow" style="margin:20px 2px 10px">Changer de programme</div>
+    <div class="stack">
+      ${Store.allPrograms().map(pr => { const on = s.programId === pr.id; return `<div class="prog-pick ${on ? 'on' : ''}">
+        <button data-action="set-program" data-id="${pr.id}" style="all:unset;cursor:pointer;display:block">
+          <div class="between"><b>${esc(pr.name)}</b>${on ? '<span class="chip ok" style="font-size:10px">Actif</span>' : `<span class="badge-eq">${esc(pr.days)}</span>`}</div>
+          <div class="ex-meta" style="margin-top:3px">${esc(pr.mode)}</div>
+          <div class="ex-meta" style="margin-top:4px">${esc(pr.desc)}${pr.custom ? ` · <b>${(S().programs[pr.id] || []).length} séance(s)</b>` : ''}</div>
+        </button>
+        <div class="row" style="margin-top:10px;gap:6px">
+          <button class="btn ghost sm" data-action="prog-detail" data-id="${pr.id}">Le pourquoi</button>
+          ${pr.custom ? `<button class="btn ghost sm" data-action="prog-edit" data-id="${pr.id}">Éditer</button>
+          <button class="btn ghost sm danger" data-action="prog-delete" data-id="${pr.id}">Supprimer</button>` : ''}
+        </div>
+      </div>`; }).join('')}
+      <button class="btn block" data-action="prog-create">+ Créer mon programme</button>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:14px;padding:0 4px">Changer de programme n’efface rien : ton historique reste continu et la rotation repart proprement.</p>`;
   }
 
   function libExercises() {
@@ -588,26 +623,9 @@
     <h1 style="font-size:26px;margin-bottom:14px">Réglages</h1>
 
     <div class="card pad stack">
-      <div class="eyebrow">Bibliothèque de programmes</div>
-      ${Store.allPrograms().map(pr => { const active = s.programId === pr.id; return `<div class="prog-pick ${active ? 'on' : ''}">
-        <button data-action="set-program" data-id="${pr.id}" style="all:unset;cursor:pointer;display:block">
-          <div class="between"><b>${esc(pr.name)}</b>${active ? '<span class="chip ok" style="font-size:10px">Actif</span>' : `<span class="badge-eq">${esc(pr.days)}</span>`}</div>
-          <div class="ex-meta" style="margin-top:3px">${esc(pr.mode)}</div>
-          <div class="ex-meta" style="margin-top:4px">${esc(pr.desc)}${pr.custom ? ` · <b>${(S().programs[pr.id] || []).length} séance(s)</b>` : ''}</div>
-        </button>
-        <div class="row" style="margin-top:10px;gap:6px">
-          <button class="btn ghost sm" data-action="prog-detail" data-id="${pr.id}">Voir le pourquoi</button>
-          ${pr.custom ? `<button class="btn ghost sm" data-action="prog-edit" data-id="${pr.id}">Éditer les séances</button>
-          <button class="btn ghost sm danger" data-action="prog-delete" data-id="${pr.id}">Supprimer</button>` : ''}
-        </div>
-      </div>`; }).join('')}
-      <button class="btn block" data-action="prog-create">+ Créer mon programme</button>
-      <p class="muted" style="font-size:12px;margin:0">Change à tout moment : l’historique reste continu et la rotation repart proprement sur le nouveau programme. Le repli fatigue bascule PPL ↔ Upper/Lower.</p>
-    </div>
-
-    <div class="card pad stack" style="margin-top:14px">
-      <div class="eyebrow">Programme</div>
-      <button class="btn block" data-nav="program">Réorganiser mes séances & exercices</button>
+      <div class="eyebrow">Entraînement</div>
+      <p class="muted" style="font-size:12px;margin:0">Programme actif, séances et exercices se règlent désormais dans l’onglet <b>Programme</b>.</p>
+      <button class="btn block" data-nav="train">Ouvrir l’onglet Programme</button>
     </div>
 
     <div class="card pad stack" style="margin-top:14px">
@@ -683,7 +701,7 @@
     const order = S().programs[pid] || [];
     const meta = Store.allPrograms().find(p => p.id === pid) || Store.activeProgram();
     if (!progEdit) {
-      return `<div class="between" style="margin-bottom:12px"><h1 style="font-size:24px">Mon programme</h1><button class="btn ghost sm" data-nav="more">Retour</button></div>
+      return `<div class="between" style="margin-bottom:12px"><h1 style="font-size:24px">Mes séances</h1><button class="btn ghost sm" data-nav="train">Retour</button></div>
       <p class="muted" style="font-size:13px;margin:0 0 14px">Programme : <b>${esc(meta.name)}</b>${pid !== S().settings.programId ? ' <span class="chip ghost" style="font-size:10px">non actif</span>' : ''}. Touche une séance pour ajuster ses exercices, ou crée la tienne.</p>
       ${order.length ? `<div class="card">${order.map(t => `<div class="lib-item">
         <div style="flex:1;min-width:0"><div class="ex-title" style="font-size:15px">${esc(t.name)}</div><div class="ex-meta">${t.blocks.length} exercices · ~${Logic.estimateMinutes(t.blocks)} min${t.focus ? ' · ' + esc(t.focus) : ''}</div></div>
@@ -1098,7 +1116,7 @@
         closeSheet(); render(); break;
       }
       case 'ex-progress': openExProgress(el.dataset.id); break;
-      case 'lib-tab': libTab = el.dataset.tab; render(); break;
+      case 'lib-tab': libTab = el.dataset.tab; render(); window.scrollTo(0, 0); break;
       case 'preview-session': openSessionPreview(el.dataset.id); break;
       case 'do-session': { await Store.bumpToFront(el.dataset.id); closeSheet(); go('home'); break; }
       case 'one-rm': openOneRM('', '', 'barre'); break;
@@ -1218,7 +1236,7 @@
           <button class="btn danger block" style="margin-top:8px" data-action="prog-delete-do" data-id="${esc(id)}">Supprimer</button>`);
         break;
       }
-      case 'prog-delete-do': { await Store.deleteProgram(el.dataset.id); closeSheet(); render(); toast('Programme supprimé.'); break; }
+      case 'prog-delete-do': { await Store.deleteProgram(el.dataset.id); closeSheet(); go('train'); toast('Programme supprimé.'); break; }
       case 'tpl-new': {
         openSheet(`<h2>Nouvelle séance</h2>
           <label class="field"><span>Nom</span><input id="nt-name" placeholder="ex. Haut du corps A"></label>
