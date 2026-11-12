@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
-  <meta name="theme-color" content="#2B3A67" />
+  <meta name="theme-color" id="theme-meta" content="#EFEBE4" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Chrono" />
@@ -11,6 +11,18 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="icon" href="icons/icon-192.png" />
+  <script>
+    /* Thème : auto (système) ou forcé depuis Réglages. Appliqué avant le CSS pour éviter un flash. */
+    window.applyTheme = function () {
+      var t = null; try { t = localStorage.getItem('chrono-theme'); } catch (e) {}
+      var root = document.documentElement;
+      if (t === 'light' || t === 'dark') root.setAttribute('data-theme', t); else root.removeAttribute('data-theme');
+      var dark = t === 'dark' || (t !== 'light' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+      var m = document.getElementById('theme-meta'); if (m) m.setAttribute('content', dark ? '#0B0B0C' : '#EFEBE4');
+    };
+    window.applyTheme();
+    try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', window.applyTheme); } catch (e) {}
+  </script>
   <link rel="stylesheet" href="css/app.css" />
   <title>Chronographe — Musculation</title>
 </head>

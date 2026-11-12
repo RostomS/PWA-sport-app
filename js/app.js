@@ -1,5 +1,5 @@
 /* app.js — Bootstrap : enregistre le service worker, charge l'état, lance l'UI. */
-window.APP_VERSION = '15';
+window.APP_VERSION = '16';
 (async function () {
   // Service worker (offline) + mise à jour automatique transparente.
   if ('serviceWorker' in navigator) {
@@ -22,6 +22,6 @@ window.APP_VERSION = '15';
   } catch (err) {
     console.error(err);
     document.getElementById('boot').innerHTML =
-      '<div style="text-align:center;padding:24px"><p>Impossible de démarrer le stockage local.</p><p style="opacity:.7;font-size:13px">' + (err && err.message ? err.message : err) + '</p><button onclick="location.reload()" style="margin-top:12px;padding:10px 16px;border-radius:12px;border:0;background:#3D5AFE;color:#fff;font-weight:700">Réessayer</button></div>';
+      '<div style="text-align:center;padding:24px"><p>Impossible de démarrer le stockage local.</p><p style="opacity:.7;font-size:13px">' + (err && err.message ? err.message : err) + '</p><button onclick="location.reload()" style="margin-top:12px;padding:10px 16px;border-radius:12px;border:0;background:#F1EDE6;color:#111;font-weight:700">Réessayer</button></div>';
   }
 })();

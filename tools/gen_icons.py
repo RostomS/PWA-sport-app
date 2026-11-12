@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Generate PWA icons (no external deps). Draws the "Chronographe" mark:
-a rounded steel tile, an electric-blue sweeping ring, a bold barbell bar."""
+a graphite tile, a bone sweeping ring, a vermilion barbell (the hand)."""
 import struct, zlib, math, os
 
 def px(r, g, b, a=255): return (r, g, b, a)
 
-STEEL = (0x2B, 0x3A, 0x67)
-DEEP  = (0x1B, 0x24, 0x42)
-SIGNAL= (0x3D, 0x5A, 0xFE)
-VOLT  = (0xC6, 0xF1, 0x35)
-WHITE = (0xFF, 0xFF, 0xFF)
+STEEL = (0x1A, 0x19, 0x18)
+DEEP  = (0x0B, 0x0B, 0x0C)
+SIGNAL= (0xF1, 0xED, 0xE6)
+VOLT  = (0xFF, 0x5A, 0x2E)
+WHITE = (0xFF, 0x5A, 0x2E)
 
 def lerp(a, b, t): return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
 
