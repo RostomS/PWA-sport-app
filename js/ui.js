@@ -38,6 +38,7 @@
     const a = ROUTE_ORDER.indexOf(route), b = ROUTE_ORDER.indexOf(r);
     enterDir = (a < 0 || b < 0 || a === b) ? 0 : Math.sign(b - a);
     route = r; render(true); window.scrollTo(0, 0);
+    if (r === 'session' && S().draft) requestWake(); else if (!timer) releaseWake();
   }
 
   // Graduations d'un cadran (60 traits, 12 majeurs) — motif signature.
@@ -59,6 +60,17 @@
       el.style.setProperty('--i', cur); segLast[k] = cur;
     });
   }
+  // Jauge de séance : la barre repart de sa valeur précédente ; l'horloge écoulée bat chaque seconde.
+  const fmtElapsed = (iso) => { const t = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000)); const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), sec = t % 60; return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(sec).padStart(2, '0'); };
+  let gaugeLast = null;
+  function syncGauge() {
+    const f = document.getElementById('sess-fill'); if (!f) { gaugeLast = null; return; }
+    const cur = +f.dataset.frac;
+    if (gaugeLast != null && gaugeLast !== cur) { f.style.transform = `scaleX(${gaugeLast})`; void f.offsetWidth; }
+    f.style.transform = `scaleX(${cur})`; gaugeLast = cur;
+  }
+  setInterval(() => { const el = document.getElementById('elapsed'); if (el) el.textContent = fmtElapsed(el.dataset.start); }, 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && route === 'session' && S().draft) { wakeLock = null; requestWake(); } });
   const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // =====================================================================
@@ -67,7 +79,7 @@
   function render(enter, soft) {
     const v = { home: viewHome, session: viewSession, volume: viewVolume, train: viewTrain, progress: viewProgress, more: viewMore, program: viewProgram }[route] || viewHome;
     app().innerHTML = `<div class="view${enter === true ? ' enter' : ''}${soft ? ' soft' : ''}" data-dir="${enter === true ? enterDir : 0}">${topbar()}${v()}</div>`;
-    renderTabs(); syncSegs();
+    renderTabs(); syncSegs(); syncGauge();
   }
   const topbar = () => `<div class="topbar"><div class="brand"><span class="mark"></span>Chronographe</div><span class="date">${new Date().toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: 'short' }).replace(/\./g, '')}</span></div>`;
 
@@ -156,10 +168,16 @@
     if (!d) return `<div class="empty"><div class="big">Aucune séance en cours</div><button class="btn primary" data-nav="home">Retour à l’accueil</button></div>`;
     const cards = d.blocks.map((b, i) => sessionCard(b, i, d.blocks.length)).join('');
     const doneCount = d.blocks.filter(b => b.sets.some(s => s.done)).length;
+    const setsTotal = d.blocks.reduce((a, b) => a + b.sets.length, 0), setsDone = d.blocks.reduce((a, b) => a + b.sets.filter(s => s.done).length, 0);
     return `
       <div class="between mb14 session-head">
         <div><div class="eyebrow">Séance en cours</div><h1>${esc(d.name)}</h1></div>
         <button class="btn ghost sm" data-action="abort">Quitter</button>
+      </div>
+      <div class="sess-gauge">
+        <span class="num el" id="elapsed" data-start="${esc(d.startedAt)}">${fmtElapsed(d.startedAt)}</span>
+        <span class="bar"><i id="sess-fill" data-frac="${setsTotal ? (setsDone / setsTotal).toFixed(4) : 0}"></i></span>
+        <span class="num cnt">${setsDone}/${setsTotal} séries</span>
       </div>
       ${d.note ? `<details class="why"><summary>Pourquoi cet ordre ?</summary><p>${esc(d.note)}</p><p class="why-rule">Règle générale : le compound le plus lourd en premier (tu es frais → plus de charge et plus de sécurité). L’ordre pèse surtout sur la force ; pour le muscle, c’est le volume près de l’échec qui compte — alors donne tout sur chaque série.</p></details>` : ''}
       ${d.dropped && d.dropped.length ? `<div class="banner info mb14"><div><div class="ttl">Séance recomposée · ${d.timeBudget} min</div><div class="body">J’ai gardé les compounds prioritaires et coupé : ${esc(d.dropped.join(', '))}.</div></div></div>` : ''}
@@ -406,7 +424,7 @@
         ${ILLU.svgFor(t.blocks[0] && (S().ex(t.blocks[0].exId) || {}).pattern || 'isolation', '')}
         <div class="grow0"><div class="ex-title fs15">${esc(t.name)}</div><div class="ex-meta">${esc(t.focus)} · ${t.blocks.length} exos · ~${Logic.estimateMinutes(t.blocks)} min</div></div>
         <span class="badge-eq">Aperçu ▸</span></div>`).join('')}</div>`).join('')}
-    <p class="muted foot">Touche une séance pour la prévisualiser en entier, puis la lancer directement. Change de programme dans les Réglages.</p>`;
+    <p class="muted foot">Touche une séance pour la prévisualiser en entier, puis la lancer directement. Pour changer de programme : segment « Mon programme ».</p>`;
   }
 
   function openSessionPreview(id) {
@@ -426,7 +444,7 @@
       <div class="ex-meta">${esc(t.focus)} · ~${Logic.estimateMinutes(t.blocks)} min · ${t.blocks.length} exercices</div>
       ${t.note ? `<details class="why" open style="margin-top:12px"><summary>Pourquoi cet ordre ?</summary><p>${esc(t.note)}</p></details>` : ''}
       <div class="card mt12">${rows}</div>
-      ${isActive ? `<button class="btn primary block mt14" data-action="do-session" data-id="${esc(id)}">Faire cette séance maintenant</button>` : '<p class="muted" style="font-size:12px;text-align:center;margin-top:12px">Aperçu — active ce programme dans les Réglages pour la faire.</p>'}`);
+      ${isActive ? `<button class="btn primary block mt14" data-action="do-session" data-id="${esc(id)}">Faire cette séance maintenant</button>` : '<p class="muted" style="font-size:12px;text-align:center;margin-top:12px">Aperçu — active ce programme dans « Mon programme » pour la faire.</p>'}`);
   }
 
   function exerciseForm(ex) {
@@ -663,6 +681,25 @@
   //  RÉGLAGES / PLUS
   // =====================================================================
   const themePref = () => { try { const t = localStorage.getItem('chrono-theme'); return t === 'light' || t === 'dark' ? t : 'auto'; } catch (e) { return 'auto'; } };
+  // ---- bip de fin de repos (WebAudio : aucun fichier, hors-ligne) ----
+  const soundOn = () => { try { return localStorage.getItem('chrono-sound') !== 'off'; } catch (e) { return true; } };
+  let audioCtx = null;
+  // À appeler dans un geste utilisateur (tap sur ✓) : iOS n'autorise le son qu'à cette condition.
+  function armSound() {
+    if (!soundOn()) return;
+    try { const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return; if (!audioCtx) audioCtx = new AC(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch (e) {}
+  }
+  function beep() {
+    if (!soundOn() || !audioCtx || audioCtx.state !== 'running') return;
+    try {
+      [0, 0.22].forEach((at, k) => {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime + at;
+        o.type = 'sine'; o.frequency.value = k ? 1175 : 880;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+        o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + 0.18);
+      });
+    } catch (e) {}
+  }
   function viewMore() {
     const s = S().settings;
     return `
@@ -677,9 +714,9 @@
     </div>
 
     <div class="card pad stack">
-      <div class="eyebrow">Entraînement</div>
-      <p class="muted fine">Programme actif, séances et exercices se règlent désormais dans l’onglet <b>Programme</b>.</p>
-      <button class="btn block" data-nav="train">Ouvrir l’onglet Programme</button>
+      <div class="eyebrow">Pendant la séance</div>
+      <label class="row gap8"><input type="checkbox" data-action="sound" ${soundOn() ? 'checked' : ''}><span class="fs14">Bip à la fin du repos</span></label>
+      <p class="muted fine">Deux bips courts quand le chrono arrive à zéro. Suit le bouton silencieux du téléphone. L’écran reste allumé pendant toute la séance.</p>
     </div>
 
     <div class="card pad stack mt14">
@@ -690,7 +727,7 @@
 
     <div class="card pad stack mt14">
       <div class="eyebrow">Barre & disques</div>
-      <p class="muted fine">Sert au plate calculator pendant la séance.</p>
+      <p class="muted fine">Sert au calcul des disques pendant la séance.</p>
       <label class="field"><span>Poids de la barre (kg)</span><input class="num" inputmode="decimal" value="${s.barWeight}" data-action="barweight"></label>
       <label class="field"><span>Disques disponibles (kg, séparés par des virgules)</span><input class="num" value="${(s.plates || []).join(', ')}" data-action="plates-setting"></label>
     </div>
@@ -869,7 +906,7 @@
   // =====================================================================
   // Wake Lock : garde l'écran allumé pendant le repos (iOS 16.4+, Chrome…). Sans effet si non supporté.
   let wakeLock = null;
-  async function requestWake() { try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
+  async function requestWake() { try { if ('wakeLock' in navigator && !wakeLock) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {} }
   function releaseWake() { try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {} }
 
   // Validation d'une série : le ✓ est tamponné, la ligne se verrouille, le compteur avance.
@@ -951,6 +988,7 @@
     }
   }
   function endTimer() {
+    beep();
     if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
     try { if (Notification && Notification.permission === 'granted') new Notification('Repos terminé', { body: 'Prochaine série.', tag: 'rest', silent: false }); } catch (e) {}
     stopTimer(false, 'done');
@@ -958,7 +996,7 @@
   // how : 'done' (fin naturelle → flash puis retour) | 'out' (passé → fondu) ; instant = retrait sec.
   function stopTimer(instant, how) {
     if (timer) { clearInterval(timer.interval); cancelAnimationFrame(timer.raf); }
-    timer = null; releaseWake();
+    timer = null; if (route !== 'session') releaseWake();
     const t = document.getElementById('timer');
     if (t) {
       if (instant === true || reducedMotion()) t.remove();
@@ -1192,8 +1230,10 @@
           if (set.reps == null || set.reps === '') set.reps = S().ex(d.blocks[b].exId).repMin;
           const ex = S().ex(d.blocks[b].exId);
           const rest = Logic.restFor(ex);
+          armSound();
           await Store.saveDraft(); render();
           const origin = stampSet(b, s);
+          if (d.blocks.every(bl => bl.sets.every(x => x.done))) { toast('Dernière série validée. Tu peux terminer la séance.'); return; }
           startTimer(d.blocks[b].superset ? Math.round(rest * 0.6) : rest, ex.id, origin);
           return;
         }
@@ -1337,6 +1377,7 @@
       // ---- bibliothèque ----
       case 'new-exercise': openSheet(exerciseForm(null)); break;
       case 'edit-exercise': openSheet(exerciseForm(S().ex(el.dataset.id))); break;
+      case 'sound': break; // géré dans onChange
       case 'pattern-change': break; // géré dans onChange
       case 'save-exercise': await saveExerciseForm(el.dataset.id); break;
       case 'archive-exercise': { const ex = S().ex(el.dataset.id); ex.archived = !ex.archived; await Store.saveExercise(ex); closeSheet(); render(); break; }
@@ -1447,6 +1488,7 @@
     switch (t.dataset.action) {
       case 'lib-search': if (t.value === libFilter) break; libFilter = t.value; { const cur = document.activeElement; render(); const ni = app().querySelector('[data-action="lib-search"]'); if (ni) { ni.focus(); ni.setSelectionRange(ni.value.length, ni.value.length); } } break;
       case 'cardio-dur': d.cardio.duration = +t.value; document.getElementById('cardio-dur-val').textContent = t.value; await Store.saveDraft(); break;
+      case 'sound': try { localStorage.setItem('chrono-sound', t.checked ? 'on' : 'off'); } catch (err) {} if (t.checked) { armSound(); beep(); } break;
       case 'cardio-incline': d.cardio.incline = +t.value; await Store.saveDraft(); break;
       case 'cardio-speed': d.cardio.speed = +t.value; await Store.saveDraft(); break;
       case 'increment': S().settings.increments[t.dataset.k] = +t.value || 1; await Store.saveSettings(); break;

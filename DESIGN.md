@@ -1,4 +1,4 @@
-# Direction design — « Cadran » (v16)
+# Direction design — « Cadran » (v17)
 
 Remplace « Chronographe affiné » (v15). Refonte de la peau et du mouvement uniquement :
 `logic.js`, `store.js`, le schéma IndexedDB, la stratégie du service worker et tous les
@@ -53,6 +53,16 @@ mono tabulaire, étiquettes en mono capitales espacées (gravure de lunette).
 jour du DOM asynchrone alors que tout `ui.js` suppose un rendu synchrone, gèle les taps
 pendant la transition et capture toute la page. L'entrée CSS directionnelle donne l'essentiel
 de l'effet sans ces risques.
+
+## Ajouts v17 (hors pure peau)
+
+- **Jauge de séance** collante : temps écoulé (bat chaque seconde) + séries faites / total (`syncGauge()`).
+- **Bip de fin de repos** (WebAudio, `armSound()` dans le tap sur ✓, `beep()` à la fin ; réglage
+  `localStorage['chrono-sound']`, `data-action="sound"`). Non vérifié sur iPhone réel.
+- **Écran allumé pendant toute la séance** (Wake Lock repris au retour au premier plan), plus
+  seulement pendant le repos.
+- Pas de chrono de repos après la toute dernière série de la séance.
+- Textes périmés corrigés (renvois vers « Réglages » pour changer de programme).
 
 ## État et reste à faire (passation)
 
