@@ -1,4 +1,4 @@
-# Direction design — « Cadran » (v17)
+# Direction design — « Cadran » (v18)
 
 Remplace « Chronographe affiné » (v15). Refonte de la peau et du mouvement uniquement :
 `logic.js`, `store.js`, le schéma IndexedDB, la stratégie du service worker et tous les
@@ -63,6 +63,22 @@ de l'effet sans ces risques.
   seulement pendant le repos.
 - Pas de chrono de repos après la toute dernière série de la séance.
 - Textes périmés corrigés (renvois vers « Réglages » pour changer de programme).
+
+## Changements de comportement v18
+
+- **La séance est enregistrée dès « Enregistrer la séance » (récap).** Le check-in vient après et
+  ne fait que compléter la séance déjà sauvée ; le fermer ne perd plus rien.
+- **Charge vide** sur un exercice chargé : reprend celle de la dernière fois, sinon refuse la
+  validation (pas de série à 0 kg). Poids du corps : inchangé.
+- **Échauffement** : validé sans chrono de repos.
+- **RIR** : plus de 2 pré-rempli ; un champ vide est enregistré vide.
+- **Changer la séance du jour** : un seul chemin (liste → aperçu → « Mettre cette séance à
+  aujourd’hui »). L'action `bump` reste gérée mais n'est plus émise.
+- **Tendance du poids** lue selon l'objectif de l'onboarding (`weightTrend()`), neutre sans objectif.
+- **Record en direct** : bandeau volt dans le chrono (ou toast volt) à l'instant de la série,
+  une fois par palier (`block.prSeen` dans le brouillon), jamais sans historique sur l'exercice.
+
+Tests : `tools/e2e-behaviour.js` (16 contrôles).
 
 ## État et reste à faire (passation)
 

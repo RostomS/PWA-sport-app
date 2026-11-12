@@ -354,6 +354,14 @@ label.field > span { display: block; font-family: var(--mono); font-size: 10.5px
 .timer-save { background: transparent !important; color: rgba(241,237,230,.6) !important; border: 0 !important; font-size: 13px !important; padding: 8px 14px !important;
   text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(241,237,230,.3); max-width: 330px; }
 
+/* record battu en direct : le volt, au moment de la série */
+.timer-pr { background: var(--volt); color: #1E2600; border-radius: 4px; padding: 8px 14px; font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: .02em;
+  display: flex; gap: 10px; align-items: baseline; position: relative; overflow: hidden; animation: prIn var(--dur-4) var(--ease-spring) 380ms both !important; }
+.timer-pr b { font-family: var(--sans); font-weight: 900; text-transform: uppercase; font-stretch: 80%; font-size: 15px; letter-spacing: .02em; }
+.timer-pr::after { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.8) 50%, transparent 65%);
+  transform: translateX(-110%); animation: sheen 900ms var(--ease-in-out) 800ms both; }
+.toast.pr { background: var(--volt); color: #1E2600; border-left: 0; font-family: var(--mono); font-weight: 700; }
+
 /* ---------- plate calculator ---------- */
 .plate-visual { display: flex; align-items: center; justify-content: center; gap: 3px; padding: 14px 10px; background: var(--sunk); border-radius: var(--r-md); min-height: 88px; }
 .plate-visual .plate-sleeve { width: 34px; height: 6px; border-radius: 1px; background: var(--muted); }

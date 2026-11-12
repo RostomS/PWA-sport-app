@@ -444,7 +444,7 @@
       <div class="ex-meta">${esc(t.focus)} · ~${Logic.estimateMinutes(t.blocks)} min · ${t.blocks.length} exercices</div>
       ${t.note ? `<details class="why" open style="margin-top:12px"><summary>Pourquoi cet ordre ?</summary><p>${esc(t.note)}</p></details>` : ''}
       <div class="card mt12">${rows}</div>
-      ${isActive ? `<button class="btn primary block mt14" data-action="do-session" data-id="${esc(id)}">Faire cette séance maintenant</button>` : '<p class="muted" style="font-size:12px;text-align:center;margin-top:12px">Aperçu — active ce programme dans « Mon programme » pour la faire.</p>'}`);
+      ${isActive ? `<button class="btn primary block mt14" data-action="do-session" data-id="${esc(id)}">Mettre cette séance à aujourd’hui</button>` : '<p class="muted" style="font-size:12px;text-align:center;margin-top:12px">Aperçu — active ce programme dans « Mon programme » pour la faire.</p>'}`);
   }
 
   function exerciseForm(ex) {
@@ -497,6 +497,14 @@
       <circle cx="${e[0].toFixed(1)}" cy="${e[1].toFixed(1)}" r="3" fill="${color}"/></svg>`;
   }
 
+  // Une baisse de poids n'est un progrès que si c'est l'objectif (sèche, recomposition) ;
+  // en prise de masse c'est la hausse ; sans objectif connu, on reste neutre.
+  function weightTrend(delta) {
+    const goal = (S().settings.profile || {}).goal;
+    if (!delta || !goal) return 'flat';
+    const wantUp = goal === 'masse';
+    return (delta > 0) === wantUp ? 'up' : 'down';
+  }
   function viewProgress() {
     const days = Logic.regularityDays(4);
     const today = new Date().toDateString();
@@ -533,7 +541,7 @@
       ${bs.count ? `
         <div class="row" style="align-items:baseline;gap:12px;margin-top:8px">
           <span class="big-num">${bs.latest.weight != null ? bs.latest.weight : '—'}<span class="u"> kg</span></span>
-          ${bs.delta != null ? `<span class="delta ${bs.delta < 0 ? 'up' : bs.delta > 0 ? 'down' : 'flat'}">${bs.delta > 0 ? '+' : ''}${bs.delta} kg${bs.spanDays ? ` · ${bs.spanDays} j` : ''}</span>` : ''}
+          ${bs.delta != null ? `<span class="delta ${weightTrend(bs.delta)}">${bs.delta > 0 ? '+' : ''}${bs.delta} kg${bs.spanDays ? ` · ${bs.spanDays} j` : ''}</span>` : ''}
         </div>
         ${bs.series.length > 1 ? `<div class="mt10">${sparkSVG(bs.series, 260, 60, 'var(--steel)')}</div>` : ''}
         ${Object.keys(bs.latest.measures || {}).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">${Object.entries(bs.latest.measures).map(([k, v]) => `<span class="chip ghost">${esc(k)} ${v} cm</span>`).join('')}</div>` : ''}
@@ -894,9 +902,9 @@
   }
 
   // Petit message éphémère (remplace les alertes système, trop brutales en PWA).
-  function toast(msg) {
+  function toast(msg, kind) {
     const t = document.createElement('div');
-    t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+    t.className = 'toast' + (kind ? ' ' + kind : ''); t.setAttribute('role', 'status'); t.textContent = msg;
     document.body.appendChild(t);
     setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 320); }, 2600);
   }
@@ -932,7 +940,7 @@
   // Le chrono est piloté par une échéance (endAt) et non par un compteur d'intervalles :
   // il reste juste même si l'app passe en arrière-plan. L'aiguille tourne en rAF (transform seul).
   const R = 140, CIRC = 2 * Math.PI * R;
-  function startTimer(seconds, exId, origin) {
+  function startTimer(seconds, exId, origin, prLabel) {
     stopTimer(true);
     requestWake();
     const ex = S().ex(exId);
@@ -945,6 +953,7 @@
     if (origin) { ov.style.setProperty('--ox', origin.x + 'px'); ov.style.setProperty('--oy', origin.y + 'px'); }
     ov.innerHTML = `
       <div class="eyebrow">Repos${ex ? ' · ' + esc(ex.name) : ''}</div>
+      ${prLabel ? `<div class="timer-pr" role="status"><b>Record</b>${esc(prLabel.replace(/^Record de /, ''))}</div>` : ''}
       <div class="dial" id="dial">
         <svg viewBox="0 0 320 320" aria-hidden="true">${dialTicks(160, 158, 146, 151)}
           <circle class="track" cx="160" cy="160" r="${R}"/>
@@ -1017,7 +1026,7 @@
       const prog = Logic.progression(b.exId);
       const last = Logic.lastOccurrence(b.exId);
       const guessW = prog && prog.type === 'load' ? prog.to : (prog && prog.weight) || (last ? Math.max(...last.entry.sets.map(s => s.weight || 0)) : null);
-      const sets = Array.from({ length: b.sets }, () => ({ weight: guessW ?? '', reps: '', rir: 2, done: false, type: 'normal' }));
+      const sets = Array.from({ length: b.sets }, () => ({ weight: guessW ?? '', reps: '', rir: '', done: false, type: 'normal' }));
       return { exId: b.exId, sets, substitutedFrom: null, superset: false, note: '' };
     });
     return {
@@ -1044,18 +1053,22 @@
     // 1) Récap de fin → 2) check-in → 3) persistance
     const recap = computeRecap(d, entries);
     sessionNote = '';
-    openRecap(recap, () => openCheckin(async (checkin) => {
+    openRecap(recap, async () => {
       const session = {
         id: Date.now(), date: new Date().toISOString(), templateId: d.templateId, name: d.name, code: d.code,
-        entries, cardio: d.cardio.done ? d.cardio : null, checkin, timeBudget: d.timeBudget, note: sessionNote || '',
+        entries, cardio: d.cardio.done ? d.cardio : null, checkin: null, timeBudget: d.timeBudget, note: sessionNote || '',
       };
       await Store.saveSession(session);
       S().sessions.push(session);
       await Store.advanceRotation(d.templateId);
       await Store.clearDraft();
-      closeSheet();
       go('home');
-    }));
+      // Le ressenti est un complément : fermer cette feuille ne perd plus la séance.
+      openCheckin(async (checkin) => {
+        if (checkin) { session.checkin = checkin; await Store.saveSession(session); }
+        closeSheet(); render();
+      });
+    });
   }
 
   function computeRecap(d, entries) {
@@ -1088,7 +1101,7 @@
       ${muscleChips ? `<div class="card pad mt12"><div class="eyebrow mb8">Muscles touchés</div><div class="wrap">${muscleChips}</div></div>` : ''}
       ${r.cardio ? `<div class="ex-meta mt10">Finisher · marche ${r.cardio.duration} min · ${r.cardio.incline}% · ${r.cardio.speed} km/h</div>` : ''}
       <label class="field mt14"><span>Note de séance (optionnel)</span><textarea id="recap-note" rows="2" placeholder="Sensations, douleurs, énergie…"></textarea></label>
-      <button class="btn primary block mt14" data-action="recap-continue">Check-in fatigue</button>
+      <button class="btn primary block mt14" data-action="recap-continue">Enregistrer la séance</button>
       </div>`);
     recapContinue = onContinue;
     countUp(document.getElementById('sheet'));
@@ -1117,14 +1130,14 @@
     const opt = (field, val, label) => `<button class="btn block" data-ck="${field}" data-v="${val}">${label}</button>`;
     let state = { energy: null, sleep: null };
     openSheet(`<div class="grab"></div>
-      <h2>Check-in · 2 taps</h2>
-      <p class="muted lead">Comment tu te sens ? Ça pilote les suggestions de repli, sans jugement.</p>
+      <h2>Séance enregistrée</h2>
+      <p class="muted lead">Deux taps de plus : comment tu te sens ? Ça pilote les suggestions de repli, sans jugement.</p>
       <div class="eyebrow">Énergie</div>
       <div class="row mt8 mb14" id="ck-energy">${opt('energy', 1, 'Basse')}${opt('energy', 2, 'Correcte')}${opt('energy', 3, 'Top')}</div>
       <div class="eyebrow">Sommeil</div>
       <div class="row mt8 mb14" id="ck-sleep">${opt('sleep', 1, 'Court')}${opt('sleep', 2, 'Correct')}${opt('sleep', 3, 'Excellent')}</div>
-      <button class="btn primary block" id="ck-done" disabled>Enregistrer la séance</button>
-      <button class="btn ghost block mt8" id="ck-skip">Passer le check-in</button>`);
+      <button class="btn primary block" id="ck-done" disabled>Enregistrer le ressenti</button>
+      <button class="btn ghost block mt8" id="ck-skip">Passer</button>`);
     const sheet = document.getElementById('sheet');
     sheet.addEventListener('click', (e) => {
       const b = e.target.closest('[data-ck]');
@@ -1213,11 +1226,10 @@
       case 'reorder': {
         const up = Store.upcoming(6);
         openSheet(`<div class="grab"></div><h2>Changer la séance du jour</h2>
-          <p class="muted lead">La séance prévue se décale simplement d’un cran. La rotation reste cohérente ensuite.</p>
-          ${Store.currentOrder().map(t => `<button class="btn block mt8" data-action="bump" data-id="${t.id}">${esc(t.name)} · ${esc(t.focus)}</button>`).join('')}`);
+          <p class="muted lead">Touche une séance pour la voir en entier, puis mets-la à aujourd’hui. La séance prévue se décale d’un cran.</p>
+          <div class="card">${Store.currentOrder().map(t => `<div class="lib-item prog-row" data-action="preview-session" data-id="${esc(t.id)}"><div class="grow0"><div class="ex-title fs15">${esc(t.name)}</div><div class="ex-meta">${esc(t.focus)} · ~${Logic.estimateMinutes(Logic.activeBlocks(t))} min</div></div><span class="badge-eq">Aperçu</span></div>`).join('')}</div>`);
         break;
       }
-      case 'bump': { await Store.bumpToFront(el.dataset.id); closeSheet(); go('home'); break; }
 
       case 'abort': openSheet(`<div class="grab"></div><h2>Quitter la séance ?</h2><p class="muted lead">Ta progression n’est pas encore enregistrée. Tu peux reprendre plus tard depuis l’accueil, ou tout effacer.</p><button class="btn block" data-action="close-sheet">Reprendre plus tard</button><button class="btn danger block mt8" data-action="abort-confirm">Abandonner la séance</button>`); break;
       case 'abort-confirm': await Store.clearDraft(); closeSheet(); go('home'); break;
@@ -1227,19 +1239,48 @@
         const b = +el.dataset.b, s = +el.dataset.s; const set = d.blocks[b].sets[s];
         set.done = !set.done;
         if (set.done) {
-          if (set.reps == null || set.reps === '') set.reps = S().ex(d.blocks[b].exId).repMin;
-          const ex = S().ex(d.blocks[b].exId);
+          const blk = d.blocks[b]; const ex = S().ex(blk.exId);
+          const last = Logic.lastOccurrence(blk.exId);
+          // Charge vide sur un exercice chargé : on reprend celle de la dernière fois (affichée en
+          // filigrane) ; sans référence, on ne valide pas — une série à 0 kg fausse volume et records.
+          if ((set.weight == null || set.weight === '') && ex.equipment !== 'poids du corps') {
+            const prev = last && last.entry.sets[s] && last.entry.sets[s].weight;
+            if (prev) set.weight = prev;
+            else {
+              set.done = false;
+              const inp = document.querySelector(`input[data-b="${b}"][data-s="${s}"][data-f="weight"]`);
+              if (inp) { if (inp.animate && !reducedMotion()) inp.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 300 }); inp.focus(); }
+              toast('Indique la charge avant de valider.'); return;
+            }
+          }
+          if (set.reps == null || set.reps === '') set.reps = ex.repMin;
           const rest = Logic.restFor(ex);
           armSound();
+          // Record battu ? Annoncé à l'instant de la série, une seule fois par palier.
+          let prLabel = null;
+          if (last && set.type !== 'warm') {
+            const norm = blk.sets.map(x => ({ weight: num(x.weight), reps: num(x.reps), done: !!x.done, type: x.type || 'normal' }));
+            blk.prSeen = blk.prSeen || {};
+            for (const pr of Logic.prForEntry(blk.exId, norm, d.startedAt)) {
+              if (!(pr.value > (blk.prSeen[pr.kind] || 0))) continue;
+              blk.prSeen[pr.kind] = pr.value; prLabel = prLabel || pr.label;
+            }
+          }
           await Store.saveDraft(); render();
           const origin = stampSet(b, s);
-          if (d.blocks.every(bl => bl.sets.every(x => x.done))) { toast('Dernière série validée. Tu peux terminer la séance.'); return; }
-          startTimer(d.blocks[b].superset ? Math.round(rest * 0.6) : rest, ex.id, origin);
+          const allDone = d.blocks.every(bl => bl.sets.every(x => x.done));
+          // Pas de repos après un échauffement ni après la toute dernière série.
+          if (set.type === 'warm' || allDone) {
+            if (prLabel) toast(prLabel, 'pr');
+            else if (allDone) toast('Dernière série validée. Tu peux terminer la séance.');
+            return;
+          }
+          startTimer(blk.superset ? Math.round(rest * 0.6) : rest, ex.id, origin, prLabel);
           return;
         }
         await Store.saveDraft(); render(); break;
       }
-      case 'add-set': { const b = +el.dataset.b; const last = d.blocks[b].sets[d.blocks[b].sets.length - 1]; d.blocks[b].sets.push({ weight: last ? last.weight : '', reps: '', rir: last ? last.rir : 2, done: false }); await Store.saveDraft(); render(); break; }
+      case 'add-set': { const b = +el.dataset.b; const last = d.blocks[b].sets[d.blocks[b].sets.length - 1]; d.blocks[b].sets.push({ weight: last ? last.weight : '', reps: '', rir: '', done: false, type: 'normal' }); await Store.saveDraft(); render(); break; }
       case 'del-set': { const b = +el.dataset.b; if (d.blocks[b].sets.length > 1) d.blocks[b].sets.pop(); await Store.saveDraft(); render(); break; }
       case 'superset': { const b = +el.dataset.b; d.blocks[b].superset = !d.blocks[b].superset; await Store.saveDraft(); render(); break; }
       case 'move-ex': {
@@ -1291,7 +1332,7 @@
       case 'ex-progress': openExProgress(el.dataset.id); break;
       case 'lib-tab': { const order = ['prog', 'seances', 'exos']; enterDir = Math.sign(order.indexOf(el.dataset.tab) - order.indexOf(libTab)); libTab = el.dataset.tab; render(true, true); window.scrollTo(0, 0); break; }
       case 'preview-session': openSessionPreview(el.dataset.id); break;
-      case 'do-session': { await Store.bumpToFront(el.dataset.id); closeSheet(); go('home'); break; }
+      case 'bump': case 'do-session': { await Store.bumpToFront(el.dataset.id); closeSheet(); go('home'); break; }
       case 'one-rm': openOneRM('', '', 'barre'); break;
       case 'one-rm-ex': { const ser = Logic.e1rmSeries(el.dataset.id); const top = ser.length ? ser[ser.length - 1].top : {}; const ex = S().ex(el.dataset.id); openOneRM(top.weight ?? '', top.reps ?? '', ex ? ex.equipment : 'barre'); break; }
 
